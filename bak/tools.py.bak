@@ -1,0 +1,315 @@
+import numpy as np
+
+def print_knk(league):
+    width = 35
+
+    fid = open('keepers_non_keepers.txt','w')
+
+    for team in league.teams:
+        keepers = team.get_keepers()
+        nonkeepers = team.get_nonkeepers()
+
+        n = max(len(keepers),len(nonkeepers))
+        print team.owner,team.team_abbr,team.team_id,team.team_name
+        fid.write(team.owner+'\n')
+        for a in range(n):
+            try:
+                k = keepers[a]
+            except:
+                k = ''
+            try:
+                nk = nonkeepers[a]
+            except:
+                nk = ''
+            outstr = '%-*s\t\t%-*s'%(width,k,width,nk)
+            print outstr
+            fid.write(outstr+'\n')
+        fid.write('\n')
+        print
+    fid.close()
+    
+class League:
+    
+    def __init__(self):
+        self.teams = []
+
+    def get_all_keepers(self):
+        out = []
+        for t in self.teams:
+            out = out + t.get_keepers()
+        return out
+
+    def __len__(self):
+        return len(self.teams)
+ 
+    def append(self, item):
+        self.teams.append(item)
+ 
+    def remove(self, item):
+        self.teams.remove(item)
+ 
+    def __getitem__(self, sliced):
+        return self.teams[sliced]
+
+
+class Player:
+    
+    def __init__(self,name,position,rank,adp,sophomore,fpts,rfpts=None,age=None,team=None,keeper_value=None):
+        
+        if not name is None:
+            self.name = name
+        else:
+            self.name = 'No Name'
+            
+        if not position is None:
+            self.position = position
+        else:
+            self.position = 'N/A'
+
+        self.rank = rank
+        self.adp = adp
+        self.sophomore = sophomore
+        self.fantasy_points = fpts
+        self.starter_relative_fantasy_points = rfpts
+        self.age = age
+        self.team = team
+        self.keeper_value = keeper_value
+        
+
+    def __str__(self):
+        rstr = ['','*'][self.sophomore]
+        nspace = 22-len(self.name)-len(rstr)-len(self.position)
+        if self.age is None or np.isnan(self.age):
+            age = 99
+        else:
+            age = int(round(self.age))
+        return '%s%s %s %d %s%s(%s / %s / %s)'%(self.name,rstr,self.position,age,('(%s)'%self.team).rjust(5),nspace*' ',('%0.1f'%self.adp).rjust(5),('%d'%self.fantasy_points).rjust(3),('%0.1f'%self.starter_relative_fantasy_points).rjust(6))
+    
+    def __repr__(self):
+        #return self.__str__()
+        return '%s-%s%s-%0.1f'%(self.position,self.name.split()[0][0],[k for k in self.name.split() if len(k)>3][-1],self.keeper_value)
+        
+        
+    def __lt__(self,other):
+        return self.adp<other.adp
+
+        
+class Team:
+
+    def __init__(self,team_id,team_abbr,team_name,owner):
+        self.team_id = team_id
+        self.team_abbr = team_abbr
+        self.team_name = team_name
+        self.owner = owner
+        self.players = []
+
+    def __len__(self):
+        return len(self.players)
+ 
+    def append(self, item):
+        self.players.append(item)
+ 
+    def remove(self, item):
+        self.players.remove(item)
+ 
+    def __getitem__(self, sliced):
+        return self.players[sliced]
+        
+    def __lt__(self,other_team):
+        return self.get_keeper_average_rank()<other_team.get_keeper_average_rank()
+        
+    def add_player(self,player):
+        self.players.append(player)
+        self.players.sort()
+        
+    def __str__(self):
+        return self.team_name
+
+    def __repr__(self):
+        return self.team_name
+
+    def print_players(self):
+        for p in self.players:
+            print p
+
+    def average_rank(self,count=9):
+        ranklist = [p.adp for p in self.players]
+        return np.mean(ranklist[:count])
+
+    def top_n_count(self,n=20):
+        ranklist = np.array([p.adp for p in self.players])
+        test = np.where(ranklist<=n)[0]
+        return len(test)
+
+    def get_corps(self,position,player_list=None):
+        if player_list is None:
+            player_list = self.players
+        out = []
+        for p in player_list:
+            if p.position==position:
+                out.append(p)
+        return out
+    
+    def swap_in(self,player_list,player):
+        # remove from player_list the worst
+        # player with player's position and
+        # insert player
+        pdict = {}
+        player_list.sort()
+        for p in player_list:
+            pos = p.position
+            #print pos
+            if pos in pdict.keys():
+                pdict[pos].append(p)
+            else:
+                pdict[pos] = [p]
+        pdict[player.position].pop(-1)
+        pdict[player.position].append(player)
+        out = []
+        for k in pdict.keys():
+            out = out + pdict[k]
+        out.sort()
+        return out
+            
+    def average_rank(self,player_list):
+        return np.mean([p.adp for p in player_list])
+
+
+    def sort_by_position(self,player_list=None):
+        if player_list is None:
+            player_list = self.players
+        qbs = self.get_corps('QB',player_list)
+        tes = self.get_corps('TE',player_list)
+        rbs = self.get_corps('RB',player_list)
+        wrs = self.get_corps('WR',player_list)
+        dsts = self.get_corps('DST',player_list)
+        ks = self.get_corps('K',player_list)
+        return qbs+rbs+wrs+tes+dsts+ks
+        
+    
+    def get_keepers0(self):
+        qbs = self.get_corps('QB')[:2]
+        tes = self.get_corps('TE')[:1]
+        rbs = self.get_corps('RB')[:3]
+        wrs = self.get_corps('WR')[:3]
+
+        keepers = qbs+rbs+wrs+tes
+        sophomores = self.get_sophomores()
+        if not any([p.sophomore for p in keepers]):
+            if len(sophomores):
+                # find the best sophomore and remove the
+                candidate_rosters = []
+                candidate_scores = []
+                for r in sophomores:
+                    temp = self.swap_in(keepers,r)
+                    candidate_rosters.append(temp)
+                    candidate_scores.append(self.average_rank(temp))
+                keepers = candidate_rosters[np.argmin(candidate_scores)]
+            else:
+                keepers.pop(np.argmax(keepers))
+        return self.sort_by_position(keepers)
+
+    def get_keepers_1(self):
+        qbs = self.get_corps('QB')[:2]
+        tes = self.get_corps('TE')[:2]
+        rbs = self.get_corps('RB')[:3]
+        wrs = self.get_corps('WR')[:3]
+
+        keepers = qbs+rbs+wrs+tes
+        sophomores = self.get_sophomores()
+        if not any([p.sophomore for p in keepers]):
+            if len(sophomores):
+                # find the best sophomore and remove the
+                candidate_rosters = []
+                candidate_scores = []
+                for r in sophomores:
+                    temp = self.swap_in(keepers,r)
+                    candidate_rosters.append(temp)
+                    candidate_scores.append(self.average_rank(temp))
+                keepers = candidate_rosters[np.argmin(candidate_scores)]
+            else:
+                keepers.pop(np.argmax(keepers))
+        qb_te_adps = []
+        for k in keepers:
+            if k.position in ['QB','TE']:
+                qb_te_adps.append(k.adp)
+            else:
+                qb_te_adps.append(-1)
+        if len(keepers)>9:
+            keepers.pop(np.argmax(qb_te_adps))
+        return self.sort_by_position(keepers)
+
+    def get_keepers(self,verbose=False):
+        def key(p):
+            if np.isnan(p.keeper_value):
+                return 1000
+            else:
+                return p.keeper_value
+
+        temp = sorted(self.players,key=key)
+        def maxed(plist,pos):
+            limits = {'QB':2,'WR':3,'RB':3,'TE':2,'K':100,'DST':100}
+            return len([p for p in plist if p.position==pos])>=limits[pos]
+            
+        keepers = []
+
+        counter = 0
+        if verbose:
+            print 'get_keepers for %s'%self.owner
+        while len(keepers)<9 and counter<len(self.players):
+            if len(temp)==0:
+                break
+            if not maxed(keepers,temp[0].position):
+                keepers.append(temp.pop(0))
+            else:
+                temp.pop(0)
+            if verbose:
+                print '\tstarting iter %d'%counter
+                print '\troster:',temp
+                print '\tkeepers:',keepers
+                #print '\tmaxed on next? ',maxed(keepers,temp[0].position)
+                print
+            counter = counter + 1
+
+        sophomores = self.get_sophomores()
+        if not any([p.sophomore for p in keepers]):
+            if len(sophomores):
+                # find the best sophomore and remove the
+                candidate_rosters = []
+                candidate_scores = []
+                for r in sophomores:
+                    temp = self.swap_in(keepers,r)
+                    candidate_rosters.append(temp)
+                    candidate_scores.append(self.average_rank(temp))
+                keepers = candidate_rosters[np.argmin(candidate_scores)]
+            else:
+                keepers.pop(np.argmax(keepers))
+
+        keepers = self.sort_by_position(keepers)
+        for test_pos,test_count in [('QB',2),('RB',3),('WR',3),('TE',2)]:
+            try:
+                assert len([p for p in keepers if p.position==test_pos])<=test_count
+            except AssertionError:
+                for test_pos,test_count in [('QB',2),('RB',3),('WR',3),('TE',2)]:
+                    print test_pos,len([p for p in keepers if p.position==test_pos])
+                sys.exit()
+        return keepers
+
+    def get_nonkeepers(self):
+        keepers = self.get_keepers()
+        return [p for p in self.players if p not in keepers]
+
+    def get_sophomores(self):
+        return [p for p in self.players if p.sophomore]
+
+    def get_keeper_average_rank(self):
+        k = self.get_keepers()
+        ranks = [p.adp for p in k]
+        while len(ranks)<9:
+            ranks.append(np.max(ranks))
+        return np.mean(ranks)
+
+    def get_nonkeeper_average_rank(self):
+        k = self.get_nonkeepers()
+        ranks = [p.adp for p in k]
+        return np.mean(ranks)
