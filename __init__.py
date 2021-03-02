@@ -5,17 +5,74 @@ import requests_cache
 import sys,os,glob,time
 import pandas as pd
 import importlib.resources as pkg_resources
-from . import data
+from . import data as league_data
 from .tools import League,Player,Team
+from nfldata import data as sharpe_data
+from .matcher import fuzzy_get_df
 
 logging.basicConfig(filename='fantasy_tools.log', level=logging.DEBUG)
-#logging.debug('This message should go to the log file')
-#logging.info('So should this')
-#logging.warning('And this, too')
-#logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
+logging.getLogger().addHandler(logging.StreamHandler())
+
+with pkg_resources.open_text(league_data, 'nfl_teams.csv') as fid:
+    teams_df = pd.read_csv(fid)
+        
+with pkg_resources.open_text(league_data, 'owners.csv') as fid:
+    owners_df = pd.read_csv(fid)
+
+with pkg_resources.open_text(sharpe_data, 'pff_pfr_map_v1.csv') as fid:
+    player_names_df = pd.read_csv(fid)
+
+# For the next dataset, we need to download ECR table from FP:
+# 1. Go to the URL https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php
+# 2. Make sure 'Overall' is selected
+# 3. Click the download button and save
+# 4. Copy the file to the local data directory, e.g. BLL2021/data/fp_rankings.csv
+# Check and warn if the file is old
+def get_rankings_df(max_age_days=30):
+    rankings_file_stat = os.stat('./data/fp_rankings.csv')
+    rankings_age_days = (time.time()-rankings_file_stat.st_mtime)/(24.0*3600.0)
+    if rankings_age_days>max_age_days:
+        sys.exit('Rankings old! Get some new ones at https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php and put them in the local data folder.')
+    rankings_df = pd.read_csv('./data/fp_rankings.csv')
+    return rankings_df
 
 
-def get_league(league_id, year, use_cached=True):
+def build_player_table():
+    # This function builds a big table of player data out of Lee Sharpe's pff_pfr_map and FP's rankings;
+    # it uses FP's rankings to identify the players of interest (skipping defense and kicker),
+    # and then Sharpe's table to connect with PFF and PFR IDs
+
+    try:
+        fung=bung
+        player_df = pd.read_csv('./data/player_table.csv')
+    except Exception:
+        rankings_df = get_rankings_df()
+        
+        
+        sharpe_default = ['','','','']
+
+        # Now we look for matches in sharpe column 'pff_name', using FP 'PLAYER NAME':
+        player_table = []
+        for idx,row in rankings_df.iterrows():
+            fp_name = row['PLAYER NAME']
+            sharpe_row = fuzzy_get_df(player_names_df,'pff_name',fp_name)
+            if sharpe_row is None:
+                out = list(row)+list(sharpe_default)
+            else:
+                out = row.values.tolist()+sharpe_row.values.tolist()[0]
+
+            assert len(out)==13
+            player_table.append(out)
+
+        fp_columns = ['RK', 'TIERS', 'PLAYER NAME', 'TEAM', 'POS', 'BEST', 'WORST', 'AVG.', 'STD.DEV']
+        sharpe_columns = ['pff_id', 'pfr_id', 'pff_name', 'pff_url_name']
+        output_columns = fp_columns+sharpe_columns
+
+        player_df = pd.DataFrame(player_table,columns=output_columns)
+        player_df.to_csv('./data/player_table.csv')
+    return player_df
+
+def build_league(league_id, year, use_cached=True):
 
     relish_id = 'league_%d_%d'%(league_id,year)
 
@@ -25,7 +82,7 @@ def get_league(league_id, year, use_cached=True):
             logging.info('Getting data from cache file.')
             return league
         except FileNotFoundError:
-            logging.info('No cached version of %s exists, downloading.'%relish_id)
+            logging.info('No cached version of League object (%s) exists, rebuilding.'%relish_id)
             
     os.makedirs('.requests_cache',exist_ok=True)
     
@@ -39,13 +96,13 @@ def get_league(league_id, year, use_cached=True):
                                cookies={"swid": swid_cookie,
                                         "espn_s2": espn_s2_cookie},
                                params={"view": "mRoster"})
-    print("Time: {0} / Used Cache: {1}".format(now, roster_page.from_cache))
+    logging.info("Got ESPN roster data; time: {0} / used cache: {1}".format(now, roster_page.from_cache))
     now = time.ctime(int(time.time()))
     team_page = requests.get(url,
                                cookies={"swid": swid_cookie,
                                         "espn_s2": espn_s2_cookie},
                                params={"view": "mTeam"})
-    print("Time: {0} / Used Cache: {1}".format(now, team_page.from_cache))
+    logging.info("Got ESPN team data; time: {0} / used cache: {1}".format(now, team_page.from_cache))
 
 
     position_dict = {1:'QB',
@@ -59,12 +116,6 @@ def get_league(league_id, year, use_cached=True):
 
 
     team_lut = {}
-    with pkg_resources.open_text(data, 'nfl_teams.csv') as fid:
-        teams_df = pd.read_csv(fid)
-        
-    with pkg_resources.open_text(data, 'owners.csv') as fid:
-        owners_df = pd.read_csv(fid)
-
     defense_lut = {}
     for idx,row in teams_df.iterrows():
         name = [k.strip() for k in row['Name'].split(' ')]
@@ -84,7 +135,6 @@ def get_league(league_id, year, use_cached=True):
         team_name = owner_series['NAME']
 
         team = Team(team_id,team_abbr,team_name,owner)
-
 
         team_roster = item['roster']
         for player_data in team_roster['entries']:
@@ -129,14 +179,14 @@ def get_league(league_id, year, use_cached=True):
                         position = position + c
 
             except Exception as e:
-                #print 'Failed to get %s from ADP table'%search_name
+                #logging.info 'Failed to get %s from ADP table'%search_name
                 pass
 
             try:
                 series = fuzzy_get_df(age_df,age_name_key,test_name).iloc[0]
                 draft_year = series[age_draft_year_key]
                 sophomore = draft_year==settings.year-1
-                #print test_name,age_name_key,sophomore
+                #logging.info test_name,age_name_key,sophomore
             except Exception as e:
                 sophomore = False
 
@@ -161,20 +211,20 @@ def get_league(league_id, year, use_cached=True):
 
                 series = fuzzy_get_df(projections_df,'playerName',search_name)
                 if series is None:
-                    #print test_name
+                    #logging.info test_name
                     pass
                 series = series.iloc[0]
                 fpts = series['fantasyPoints']
                 rfpts = series['relativeFantasyPoints']
             except Exception as e:
-                #print 'Failed to get %s from PROJ table'%search_name
+                #logging.info 'Failed to get %s from PROJ table'%search_name
                 pass
 
             p = Player(name,position,rank,adp,sophomore,fpts,rfpts=rfpts,age=age,team=team_name,keeper_value=adp+bias)
             team.add_player(p)
 
         league.append(team)
-        #print team,'%0.1f'%np.mean([p.adp for p in team.get_keepers()])
+        #logging.info team,'%0.1f'%np.mean([p.adp for p in team.get_keepers()])
 
 
     league.teams.sort()
@@ -219,7 +269,7 @@ if False:
         league = pickle.load(infile)
         infile.close()
     except Exception as e:
-        #print e
+        #logging.info e
 
         requests_cache.install_cache(cache_name='espn_cache', backend='sqlite', expire_after=7200)
 
@@ -234,7 +284,7 @@ if False:
                                    cookies={"swid": swid_cookie,
                                             "espn_s2": espn_s2_cookie},
                                    params={"view": "mRoster"})
-        #print "Time: {0} / Used Cache: {1}".format(now, roster_page.from_cache)
+        #logging.info "Time: {0} / Used Cache: {1}".format(now, roster_page.from_cache)
         now = time.ctime(int(time.time()))
         team_page = requests.get(url,
                                    cookies={"swid": swid_cookie,
