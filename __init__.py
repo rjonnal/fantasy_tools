@@ -20,7 +20,11 @@ with pkg_resources.open_text(league_data, 'owners.csv') as fid:
     owners_df = pd.read_csv(fid)
 
 with pkg_resources.open_text(sharpe_data, 'pff_pfr_map_v1.csv') as fid:
-    player_names_df = pd.read_csv(fid)
+    player_name_df = pd.read_csv(fid)
+
+with pkg_resources.open_text(sharpe_data, 'draft_picks.csv') as fid:
+    draft_df = pd.read_csv(fid)
+
 
 # For the next dataset, we need to download ECR table from FP:
 # 1. Go to the URL https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php
@@ -37,40 +41,104 @@ def get_rankings_df(max_age_days=30):
     return rankings_df
 
 
+def posrank_split(posrank):
+    temp = posrank[::-1]
+    rev_rank_string = ''
+    rev_pos_string = ''
+    
+    for idx in range(len(temp)):
+        try:
+            int(temp[idx])
+            rev_rank_string = rev_rank_string + temp[idx]
+        except:
+            rev_pos_string = rev_pos_string + temp[idx]
+    return rev_pos_string[::-1],int(rev_rank_string[::-1])
+
+
+def get_id(name,position,team):
+    name = name.replace(' ','')
+    name = name.replace('.','')
+    name = name.replace(',','')
+    name = name.replace('-','')
+    name = name.replace("'","")
+    out = name.lower().strip()+position.lower().strip()+team.lower().strip()
+    return out
+
 def build_player_table():
     # This function builds a big table of player data out of Lee Sharpe's pff_pfr_map and FP's rankings;
     # it uses FP's rankings to identify the players of interest (skipping defense and kicker),
     # and then Sharpe's table to connect with PFF and PFR IDs
 
     try:
-        fung=bung
         player_df = pd.read_csv('./data/player_table.csv')
     except Exception:
         rankings_df = get_rankings_df()
         
         
-        sharpe_default = ['','','','']
-
+        name_row_default = ['']*4
+        draft_row_default = ['']*10
         # Now we look for matches in sharpe column 'pff_name', using FP 'PLAYER NAME':
+        
         player_table = []
         for idx,row in rankings_df.iterrows():
             fp_name = row['PLAYER NAME']
-            sharpe_row = fuzzy_get_df(player_names_df,'pff_name',fp_name)
-            if sharpe_row is None:
-                out = list(row)+list(sharpe_default)
+            position,rank = posrank_split(row['POS'])
+            if not position in ['QB','RB','WR','TE']:
+                continue
+            team = row['TEAM']
+
+            player_id = get_id(fp_name,position,team)
+
+            for letter in player_id:
+                try:
+                    assert letter in 'abcdefghijklmnopqrstuvwxyz'
+                except:
+                    print('%s is not a lower case letter'%letter)
+                    sys.exit()
+                    
+            out_list = row.values.tolist()
+            
+            name_map_row = fuzzy_get_df(player_name_df,'pff_name',fp_name)
+            if name_map_row is None:
+                name_map_list = name_row_default
             else:
-                out = row.values.tolist()+sharpe_row.values.tolist()[0]
+                name_map_list = name_map_row.values.tolist()[0]
 
-            assert len(out)==13
-            player_table.append(out)
-
+                
+            draft_row = fuzzy_get_df(draft_df,'full_name',fp_name,threshold=0.8,verbose=True)
+            if draft_row is None:
+                draft_list = draft_row_default
+            else:
+                if len(draft_row)>1:
+                    draft_row = draft_row[draft_row['position']==position]
+                    if len(draft_row)>1:
+                        draft_row = draft_row[draft_row['team']==team]
+                        if len(draft_row)>1:
+                            sys.exit('Too many %s named %s playing for %s.'%(position,fp_name,team))
+                try:
+                    draft_list = draft_row.values.tolist()[0]
+                except:
+                    print('fault:',draft_row)
+                    draft_list = draft_row_default
+            
+            out_list = [player_id] + out_list + name_map_list + draft_list
+            assert len(out_list)==24
+            player_table.append(out_list)
+            print(out_list)
+            
         fp_columns = ['RK', 'TIERS', 'PLAYER NAME', 'TEAM', 'POS', 'BEST', 'WORST', 'AVG.', 'STD.DEV']
-        sharpe_columns = ['pff_id', 'pfr_id', 'pff_name', 'pff_url_name']
-        output_columns = fp_columns+sharpe_columns
+        name_map_columns = ['pff_id', 'pfr_id', 'pff_name', 'pff_url_name']
+        draft_columns = ['season', 'team', 'round', 'pick', 'playerid', 'full_name', 'name', 'side', 'category', 'position']
+        
+        output_columns = ['unique_id']+fp_columns+name_map_columns+draft_columns
 
         player_df = pd.DataFrame(player_table,columns=output_columns)
         player_df.to_csv('./data/player_table.csv')
     return player_df
+
+
+
+
 
 def build_league(league_id, year, use_cached=True):
 
@@ -137,10 +205,13 @@ def build_league(league_id, year, use_cached=True):
         team = Team(team_id,team_abbr,team_name,owner)
 
         team_roster = item['roster']
+        
         for player_data in team_roster['entries']:
             player_row = player_data['playerPoolEntry']['player']
             name = player_row['fullName']
-
+            print(player_row.keys())
+            print(player_row['stats'])
+            sys.exit()
 
             if name in defense_lut.keys():
                 test_name = defense_lut[name]

@@ -11,9 +11,8 @@ def similarity(a, b):
     
 def fuzzy_get_df(df,column,string,threshold=.85,verbose=False):
     # return row of df where its column matches (or near matches) string
-
     match = df[df[column]==string]
-    if len(match)==1: # a perfect match
+    if len(match)>=1: # a perfect match
         return match
     elif len(match)==0:
         scores = []

@@ -26,8 +26,9 @@ class League:
 
 class Player:
     
-    def __init__(self,name,position):
-        
+    def __init__(self,data_row):
+        print(data_row)
+        sys.exit()
         self.name = name
         self.position = position
         
