@@ -124,7 +124,6 @@ def build_player_table():
             out_list = [player_id] + out_list + name_map_list + draft_list
             assert len(out_list)==24
             player_table.append(out_list)
-            print(out_list)
             
         fp_columns = ['RK', 'TIERS', 'PLAYER NAME', 'TEAM', 'POS', 'BEST', 'WORST', 'AVG.', 'STD.DEV']
         name_map_columns = ['pff_id', 'pfr_id', 'pff_name', 'pff_url_name']
@@ -138,10 +137,10 @@ def build_player_table():
 
 
 
-
-
 def build_league(league_id, year, use_cached=True):
 
+    players_df = build_player_table()
+    
     relish_id = 'league_%d_%d'%(league_id,year)
 
     if use_cached:
@@ -183,7 +182,6 @@ def build_league(league_id, year, use_cached=True):
     team_dict = team_page.json()
 
 
-    team_lut = {}
     defense_lut = {}
     for idx,row in teams_df.iterrows():
         name = [k.strip() for k in row['Name'].split(' ')]
@@ -207,375 +205,31 @@ def build_league(league_id, year, use_cached=True):
         team_roster = item['roster']
         
         for player_data in team_roster['entries']:
-            player_row = player_data['playerPoolEntry']['player']
-            name = player_row['fullName']
-            print(player_row.keys())
-            print(player_row['stats'])
-            sys.exit()
-
-            if name in defense_lut.keys():
-                test_name = defense_lut[name]
-            else:
-                test_name = name
-
+            espn_row = player_data['playerPoolEntry']['player']
+            name = espn_row['fullName']
+            position = position_dict[espn_row['defaultPositionId']]
+            team_name = teams_df[teams_df['ESPN_ID']==espn_row['proTeamId']]['Abbreviation'].values[0]
             try:
-                series = fuzzy_get_df(adp_df,adp_name_key,search_name).iloc[0]
+                test_id = get_id(name,position,team_name)
+                players = players_df[players_df['unique_id']==test_id]
+                assert len(players)==1
+            except AssertionError as ae:
+                players = fuzzy_get_df(players_df,'PLAYER NAME',name)
+                if not players is None:
+                    if len(players)>1:
+                        players = players[players['POS']==position]
+                    if len(players)>1:
+                        players = players[players['TEAM']==team_name]
+                    if not len(players)==1:
+                        sys.exit('Could not locate player with name %s, team %s, position %s in player table.'%(name,team_name,position))
 
-                try:
-                    adp = series[adp_adp_key]
-                except:
-                    adp = series[adp_rank_key]
-
-                rank = series[adp_rank_key]
-                team_name = series[adp_team_key]
-
-
-                try:
-                    age = series[adp_age_key]
-                except Exception as e:
-                    try:
-                        backup_series = fuzzy_get_df(age_df,age_name_key,test_name).iloc[0]
-                        age = backup_series[age_age_key]
-                    except Exception as e:
-                        age = None
-
-                position_rank = series[adp_positionalrank_key]
-                position = ''
-                for k in range(len(position_rank)):
-                    c = position_rank[k]
-                    try:
-                        junk = int(c)
-                        break
-                    except:
-                        position = position + c
-
-            except Exception as e:
-                #logging.info 'Failed to get %s from ADP table'%search_name
-                pass
-
-            try:
-                series = fuzzy_get_df(age_df,age_name_key,test_name).iloc[0]
-                draft_year = series[age_draft_year_key]
-                sophomore = draft_year==settings.year-1
-                #logging.info test_name,age_name_key,sophomore
-            except Exception as e:
-                sophomore = False
-
-
-
-            try:
-                series = fuzzy_get_df(keeper_biases_df,keeper_biases_name_key,test_name).iloc[0]
-                bias = series[keeper_biases_bias_key]
-            except Exception as e:
-                bias = 0
-
-
-            fpts = 0
-            rfpts = -100
-            try:
-
-                try:
-                    search_name = projections_name_replacements[test_name]
-                except KeyError:
-                    search_name = test_name
-
-
-                series = fuzzy_get_df(projections_df,'playerName',search_name)
-                if series is None:
-                    #logging.info test_name
-                    pass
-                series = series.iloc[0]
-                fpts = series['fantasyPoints']
-                rfpts = series['relativeFantasyPoints']
-            except Exception as e:
-                #logging.info 'Failed to get %s from PROJ table'%search_name
-                pass
-
-            p = Player(name,position,rank,adp,sophomore,fpts,rfpts=rfpts,age=age,team=team_name,keeper_value=adp+bias)
+            # At this stage, players is either a 1 row dataframe containing the player info or None, in the case
+            # of unranked players, kickers, defenses, etc.
+            p = Player(name,position,team_name,players)
             team.add_player(p)
 
         league.append(team)
-        #logging.info team,'%0.1f'%np.mean([p.adp for p in team.get_keepers()])
-
 
     league.teams.sort()
-
-        
-        
-if __name__=='__main__':
-    get_league(2020,172550)
-
-if False:
-
-    pickle_filename = settings.pickle_filename
-    adp_name_key = 'Overall'
-    adp_adp_key = 'ADP'
-    adp_age_key = 'Age'
-    adp_rank_key = 'Rank'
-    adp_team_key = 'Team'
-    adp_positionalrank_key = 'Pos'
-
-    age_age_key = 'age'
-    age_draft_year_key = 'draft_year'
-    age_ecr = 'ecr_1qb'
-    age_ecr_pos = 'ecr_pos'
-    age_mkt_value = 'value_1qb'
-    age_name_key = 'player'
-
-    owners_df = pd.read_csv('data/owners.csv')
-    adp_df = pd.read_csv('data/adp/adp.csv')
-    keeper_biases_df = pd.read_csv('./data/keeper_biases.csv')
-    keeper_biases_name_key = 'name'
-    keeper_biases_bias_key = 'bias'
-
-    # download this, if possible, and updated
-    # https://docs.google.com/spreadsheets/d/19YvN6ac_2VEsdumylgsBd4hi_YTmeBUIi6s0hmSV3RA/edit?usp=sharing
-
-    age_df = pd.read_csv('data/player_age_mkt_value.csv')
-
-    projections_df = pd.read_csv('data/projections/pff_projections_with_value.csv')
-
-    try:
-        infile = open(pickle_filename,'rb')
-        league = pickle.load(infile)
-        infile.close()
-    except Exception as e:
-        #logging.info e
-
-        requests_cache.install_cache(cache_name='espn_cache', backend='sqlite', expire_after=7200)
-
-        league_id = 172550
-        year = settings.year
-        url = "https://fantasy.espn.com/apis/v3/games/ffl/seasons/%d/segments/0/leagues/%d"%(year,league_id)
-
-        swid_cookie = '720838F2-19CB-4C50-8AB7-41E1D10796F0'
-        espn_s2_cookie = 'AECabeD%2F6A2ggL51TfzwstV8JoDHLvMAbfcbnSaJe6765VrE%2FYsS%2BHv1Zja6Hc6HFDU12buqeI61zjprVioYcZga8NMV1zlabmxIenG4anG7YclvaQH68VsyA0LqvfnSTSOM%2BoiivVS1kvA0%2BZ29cMjnq5dFOozySFshoxNLYUJGBNt7045cKBHJDI1oDcmnEdl3OGvDY8E2bP%2B4cUFIWqA4PkFv3leHeFzNKZPkrEJ%2FYET0F2oaLcr7ta7VCXZ%2Bt4rQ%2Bl8l5ylCMH8jyJOBtR7z'
-        now = time.ctime(int(time.time()))
-        roster_page = requests.get(url,
-                                   cookies={"swid": swid_cookie,
-                                            "espn_s2": espn_s2_cookie},
-                                   params={"view": "mRoster"})
-        #logging.info "Time: {0} / Used Cache: {1}".format(now, roster_page.from_cache)
-        now = time.ctime(int(time.time()))
-        team_page = requests.get(url,
-                                   cookies={"swid": swid_cookie,
-                                            "espn_s2": espn_s2_cookie},
-                                   params={"view": "mTeam"})
-        #print "Time: {0} / Used Cache: {1}".format(now, team_page.from_cache)
-
-
-        # possible views are:
-        #     mMatchup
-        #     mTeam
-        #     mBoxscore
-        #     mRoster
-        #     mSettings
-        #     kona_player_info
-        #     player_wl
-        #     mSchedule
-
-        position_dict = {1:'QB',
-                         2:'RB',
-                         3:'WR',
-                         4:'TE',
-                         5:'K',
-                         16:'D/ST'}
-        roster_dict = roster_page.json()
-        team_dict = team_page.json()
-
-
-        team_lut = {}
-        teams_df = pd.read_csv('data/nfl_teams.csv')
-        defense_lut = {}
-        for idx,row in teams_df.iterrows():
-            name = [k.strip() for k in row['Name'].split(' ')]
-            city = ' '.join(name[:-1])
-            mascot = name[-1]
-            abbreviation = row['Abbreviation']
-            key = '%s D/ST'%mascot
-            value = '%s (%s)'%(city,abbreviation)
-            defense_lut[key] = value
-
-
-        league = League()
-        for item in roster_dict['teams']:
-            team_id = item['id']
-            owner_series = owners_df.loc[owners_df['id'] == team_id].iloc[0]
-            owner = owner_series['OWNER NAME']
-            team_abbr = owner_series['ABBRV']
-            team_name = owner_series['NAME']
-
-            team = Team(team_id,team_abbr,team_name,owner)
-
-            team_roster = item['roster']
-            for player_data in team_roster['entries']:
-                player_row = player_data['playerPoolEntry']['player']
-                name = player_row['fullName']
-
-
-                if name in defense_lut.keys():
-                    test_name = defense_lut[name]
-                else:
-                    test_name = name
-
-                adp = 500.0
-                rank = 500.0
-                age = None
-                position = None
-                sophomore = False
-                team_name = None
-                try:
-
-                    try:
-                        search_name = adp_name_replacements[test_name]
-                    except KeyError:
-                        search_name = test_name
-
-                    #print test_name,'->',search_name
-                    series = fuzzy_get_df(adp_df,adp_name_key,search_name).iloc[0]
-
-                    try:
-                        adp = series[adp_adp_key]
-                    except:
-                        adp = series[adp_rank_key]
-
-                    rank = series[adp_rank_key]
-                    team_name = series[adp_team_key]
-
-
-                    try:
-                        age = series[adp_age_key]
-                    except Exception as e:
-                        try:
-                            backup_series = fuzzy_get_df(age_df,age_name_key,test_name).iloc[0]
-                            age = backup_series[age_age_key]
-                        except Exception as e:
-                            age = None
-
-                    position_rank = series[adp_positionalrank_key]
-                    position = ''
-                    for k in range(len(position_rank)):
-                        c = position_rank[k]
-                        try:
-                            junk = int(c)
-                            break
-                        except:
-                            position = position + c
-
-                except Exception as e:
-                    #print 'Failed to get %s from ADP table'%search_name
-                    pass
-
-                try:
-                    series = fuzzy_get_df(age_df,age_name_key,test_name).iloc[0]
-                    draft_year = series[age_draft_year_key]
-                    sophomore = draft_year==settings.year-1
-                    #print test_name,age_name_key,sophomore
-                except Exception as e:
-                    sophomore = False
-
-
-
-                try:
-                    series = fuzzy_get_df(keeper_biases_df,keeper_biases_name_key,test_name).iloc[0]
-                    bias = series[keeper_biases_bias_key]
-                except Exception as e:
-                    bias = 0
-
-
-                fpts = 0
-                rfpts = -100
-                try:
-
-                    try:
-                        search_name = projections_name_replacements[test_name]
-                    except KeyError:
-                        search_name = test_name
-
-
-                    series = fuzzy_get_df(projections_df,'playerName',search_name)
-                    if series is None:
-                        #print test_name
-                        pass
-                    series = series.iloc[0]
-                    fpts = series['fantasyPoints']
-                    rfpts = series['relativeFantasyPoints']
-                except Exception as e:
-                    #print 'Failed to get %s from PROJ table'%search_name
-                    pass
-
-                p = Player(name,position,rank,adp,sophomore,fpts,rfpts=rfpts,age=age,team=team_name,keeper_value=adp+bias)
-                team.add_player(p)
-
-            league.append(team)
-            #print team,'%0.1f'%np.mean([p.adp for p in team.get_keepers()])
-
-
-        league.teams.sort()
-
-        outfile = open(pickle_filename,'wb')
-        pickle.dump(league,outfile)
-        outfile.close()
-
-
-    if __name__=='__main__':
-
-        ##print_knk(league)
-        all_keepers = league.get_all_keepers()
-        all_keeper_names = [k.name for k in all_keepers]
-        available_players = []
-        replacements = {'D.J. Chark':'DJ Chark Jr.'}
-        for index,in_row in adp_df.iterrows():
-            name = in_row[adp_name_key]
-            if name in replacements.keys():
-                name = replacements[name]
-            keeper = fuzzy_in(all_keeper_names,name)
-            if not keeper:
-                available_players.append(in_row)
-
-        available_df = pd.DataFrame(available_players)
-
-        n_rows = len(draft_order_df.index)
-        available_df = available_df.head(n_rows)
-
-        columns = ['pick','owner','rank','name','pos','team','age','pts','rpts']
-        df_list = []
-        replacements = {'D.J. Chark':'D.J. Chark Jr.'}
-        for k in range(n_rows):
-            player_series = available_df.iloc[k]
-            draft_series = draft_order_df.iloc[k]
-
-            pick = draft_series['pick']
-            owner = draft_series['owner']
-            name = player_series[adp_name_key]
-            rank = player_series[adp_rank_key]
-            try:
-                age = player_series[adp_age_key]
-            except Exception as e:
-                try:
-                    backup_series = fuzzy_get_df(age_df,age_name_key,test_name).iloc[0]
-                    age = backup_series[age_age_key]
-                except Exception as e:
-                    age = 99
-
-            nflteam = player_series[adp_team_key]
-            pos = player_series[adp_positionalrank_key]
-            if name in replacements.keys():
-                pname = replacements[name]
-            else:
-                pname = name
-
-            pts = 0.0
-            rpts = -200.0
-            try:
-                pts = fuzzy_get_df(projections_df,'playerName',pname).iloc[0]['fantasyPoints']
-                rpts = fuzzy_get_df(projections_df,'playerName',pname).iloc[0]['relativeFantasyPoints']
-            except Exception as e:
-                pass
-
-            out_series = [pick,owner,rank,name,pos,nflteam,age,pts,rpts]
-            df_list.append(out_series)
-
-        output_df = pd.DataFrame(df_list,columns=columns)
-        output_df.to_csv('cheatsheet.csv')
-        #print_knk(league)
+    #relish.save(relish_id,league)
+    return league

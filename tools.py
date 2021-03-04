@@ -1,4 +1,9 @@
 import numpy as np
+import logging
+
+logging.basicConfig(filename='fantasy_tools.log', level=logging.DEBUG)
+logging.getLogger().addHandler(logging.StreamHandler())
+
 
 class League:
     
@@ -23,19 +28,55 @@ class League:
     def __getitem__(self, sliced):
         return self.teams[sliced]
 
-
+        
 class Player:
     
-    def __init__(self,data_row):
-        print(data_row)
-        sys.exit()
+    def __init__(self,name,position,team,data_row=None):
         self.name = name
         self.position = position
-        
-    def __lt__(self,other):
-        # need a dummy comparator until rank is implemented
-        return self.name<other.name
+        self.team = team
+        if data_row is None:
+            self.rank = 1000
+            self.tier = 1000
+            self.draft_year = 0
+            self.draft_round = 0
+            self.draft_pick = 0
+            self.pff_id = ''
+            self.pfr_id = ''
+            self.pff_name = ''
+            self.pff_url_name = ''
+            self.posrank = ''
+            
+        else:
+            self.rank = data_row['RK'].values[0]
+            try:
+                self.tier = data_row['TIERS'].values[0]
+            except:
+                self.tier = 0
+            self.draft_year = data_row['season'].values[0]
+            self.draft_round = data_row['round'].values[0]
+            self.draft_pick = data_row['pick'].values[0]
+            self.pff_id = data_row['pff_id'].values[0]
+            self.pfr_id = data_row['pfr_id'].values[0]
+            self.pff_name = data_row['pff_name'].values[0]
+            self.pff_url_name = data_row['pff_url_name'].values[0]
+            self.posrank = data_row['POS'].values[0]
 
+
+        # do some checks:
+        try:
+            int(self.draft_year)
+        except:
+            self.draft_year = 0
+            
+    def __lt__(self,other):
+        return self.rank<other.rank
+
+    def __str__(self):
+        return '%s / %s / %s (%d)'%(self.name,self.posrank,self.team,self.draft_year)
+    
+    def __repr__(self):
+        return '%s / %s'%(' '.join(self.name.split()[1:]),self.posrank)
         
 class Team:
 
@@ -45,6 +86,10 @@ class Team:
         self.team_name = team_name
         self.owner = owner
         self.players = []
+
+
+    def __lt__(self,other):
+        return np.sum([p.rank for p in sorted(self.players)[:9]])<np.sum([p.rank for p in sorted(other.players)[:9]])
 
     def __len__(self):
         return len(self.players)
@@ -78,6 +123,7 @@ class Team:
             if p.position==position:
                 out.append(p)
         return out
+
     
     def swap_in(self,player_list,player):
         # remove from player_list the worst
@@ -111,3 +157,25 @@ class Team:
         ks = self.get_corps('K',player_list)
         return qbs+rbs+wrs+tes+dsts+ks
         
+    def get_keepers(self,verbose=True):
+        if verbose:
+            logging.
+        positions = ['QB','RB','WR','TE']
+        counts = {}
+        limits = {}
+        for pos in positions:
+            counts[pos] = 0
+        
+        limits['QB'] = 2
+        limits['RB'] = 2
+        limits['WR'] = 2
+        limits['TE'] = 1
+
+        keepers = []
+        for pos in positions:
+            candidates = self.get_corps(pos)
+            candidates.sort(key = lambda c: c.rank)
+            while counts[pos]<limits[pos] and len(candidates)>1:
+                keepers.append(candidates.pop(0))
+                counts[pos]+=1
+        print('keepers:',keepers)
