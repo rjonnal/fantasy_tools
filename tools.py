@@ -1,10 +1,6 @@
 import numpy as np
 import logging
 
-logging.basicConfig(filename='fantasy_tools.log', level=logging.DEBUG)
-logging.getLogger().addHandler(logging.StreamHandler())
-
-
 class League:
     
     def __init__(self):
@@ -76,7 +72,11 @@ class Player:
         return '%s / %s / %s (%d)'%(self.name,self.posrank,self.team,self.draft_year)
     
     def __repr__(self):
-        return '%s / %s'%(' '.join(self.name.split()[1:]),self.posrank)
+        if self.draft_year==2020:
+            rstr = '*'
+        else:
+            rstr=''
+        return '%s-%s%s'%(' '.join(self.name.split()[1:]),self.posrank,rstr)
         
 class Team:
 
@@ -116,8 +116,9 @@ class Team:
         for p in self.players:
             print(p)
 
-    def get_corps(self,position):
-        player_list = self.players
+    def get_corps(self,position,player_list=None):
+        if player_list is None:
+            player_list = self.players
         out = []
         for p in player_list:
             if p.position==position:
@@ -156,10 +157,67 @@ class Team:
         dsts = self.get_corps('DST',player_list)
         ks = self.get_corps('K',player_list)
         return qbs+rbs+wrs+tes+dsts+ks
+
+
+    def npos(self,pos,player_list=None):
+        if player_list is None:
+            player_list = self.players
+        return len(self.get_corps(pos,player_list=player_list))
+
+    def has_rookie(self,plist,rookie_year):
+        return any([p.draft_year==rookie_year for p in plist])
+                
+    
+    def fix_roster(self,roster,rookie_year):
+
+        out = [p for p in roster]
+
+        def remove_worst(position,plist):
+            wild = position=='*'
+            poslist = [p for p in plist if (p.position==position or wild)]
+            nposlist = [p for p in plist if ((not p.position==position) and (not wild))]
+            poslist.sort()
+            poslist.pop(-1)
+            return sorted(poslist+nposlist)
         
-    def get_keepers(self,verbose=True):
+        while self.npos('QB',out)>3:
+            out = remove_worst('QB',out)
+
+        if self.npos('QB',out)==3 and not self.has_rookie(self.get_corps('QB',out), rookie_year):
+            out = remove_worst('QB',out)
+
+        while self.npos('RB',out)>3:
+            out = remove_worst('RB',out)
+
+        if self.npos('RB',out)==3 and not self.has_rookie(self.get_corps('RB',out), rookie_year):
+            out = remove_worst('RB',out)
+
+        while self.npos('WR',out)>3:
+            out = remove_worst('WR',out)
+
+        if self.npos('WR',out)==3 and not self.has_rookie(self.get_corps('WR',out), rookie_year):
+            out = remove_worst('WR',out)
+
+        while self.npos('TE',out)>2:
+            out = remove_worst('TE',out)
+
+        if self.npos('TE',out)==2 and not self.has_rookie(self.get_corps('TE',out), rookie_year):
+            out = remove_worst('TE',out)
+
+        while len(out)>9:
+            out = remove_worst('*',out)
+            
+        return out
+
+    
+    def get_keepers(self,rookie_year,verbose=False):
+        self.players.sort()
+
+        players = [p for p in self.players]
+        
         if verbose:
-            logging.
+            logging.info('get_keepers run by %s'%self)
+            
         positions = ['QB','RB','WR','TE']
         counts = {}
         limits = {}
@@ -167,15 +225,57 @@ class Team:
             counts[pos] = 0
         
         limits['QB'] = 2
-        limits['RB'] = 2
-        limits['WR'] = 2
-        limits['TE'] = 1
+        limits['RB'] = 3
+        limits['WR'] = 3
+        limits['TE'] = 2
 
         keepers = []
+
+        # first let's add our highest rank rookie
+        rookies = [p for p in self.players if p.draft_year==rookie_year]
+        try:
+            rookies.sort()
+            keepers.append(rookies[0])
+            players.remove(rookies[0])
+            counts[rookies[0].position]+=1
+            rookies.pop(0)
+            total_limit = 9
+        except:
+            # no rookies!
+            total_limit = 8
+        
         for pos in positions:
-            candidates = self.get_corps(pos)
-            candidates.sort(key = lambda c: c.rank)
-            while counts[pos]<limits[pos] and len(candidates)>1:
-                keepers.append(candidates.pop(0))
+            if verbose:
+                logging.info('Getting initial %ss.'%pos)
+            candidates = self.get_corps(pos,players)
+            candidates.sort()#key = lambda c: c.rank)
+            if verbose:
+                logging.info('%s candidates:'%pos)
+                logging.info(candidates)
+            while counts[pos]<limits[pos] and len(candidates)>=1:
+                temp = candidates.pop(0)
+                players.remove(temp)
+                if verbose:
+                    logging.info('Adding %s to keepers.'%temp)
+                keepers.append(temp)
                 counts[pos]+=1
-        print('keepers:',keepers)
+
+        #keepers = self.fix_roster(keepers,rookie_year)
+
+        while len(keepers)>total_limit:
+            rk = [p for p in keepers if p.draft_year==rookie_year]
+            vk = [p for p in keepers if not p in rk]
+            rk.sort()
+            vk.sort()
+            keepers.remove(vk[-1])
+            
+        if verbose:
+            logging.info('Keeping (%d):'%len(keepers))
+            logging.info(keepers)
+            logging.info('Dropping (%d):'%len(players))
+            logging.info(players)
+
+        if verbose:
+            logging.info('')
+
+        return keepers
