@@ -10,7 +10,7 @@ from .tools import League,Player,Team
 from nfldata import data as sharpe_data
 from .matcher import fuzzy_get_df
 
-logging.basicConfig(filename='fantasy_tools.log', level=logging.DEBUG)
+logging.basicConfig(filename='fantasy_tools.log', level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler())
 
 with pkg_resources.open_text(league_data, 'nfl_teams.csv') as fid:
@@ -40,6 +40,8 @@ def get_rankings_df(max_age_days=30):
     rankings_df = pd.read_csv('./data/fp_rankings.csv')
     return rankings_df
 
+
+position_color_dict = {'QB':'b','RB':'g','WR':'r','TE':'y','D/ST':'k','K':'k'}
 
 def posrank_split(posrank):
     temp = posrank[::-1]
@@ -137,7 +139,7 @@ def build_player_table():
 
 
 
-def build_league(league_id, year, use_cached=True):
+def build_league(league_id, year, use_cached=False):
 
     players_df = build_player_table()
     
