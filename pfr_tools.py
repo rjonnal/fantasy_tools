@@ -60,7 +60,7 @@ def get_player_gamelog(player,year):
         df = df[:-1]
         zero_strings = ['Inactive','Injured Reserve','Did Not Play','COVID-19 List']
         for zs in zero_strings:
-            df = df.replace(zs,0.0)
+            df = df.replace(zs,np.nan)
         
         
         for col in ['Rk', 'G#', 'Week', 'Age', 'Passing_Cmp', 'Passing_Att',
