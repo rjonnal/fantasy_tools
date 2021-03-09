@@ -65,6 +65,17 @@ class Player:
         except:
             self.draft_year = 0
             
+        self.unique_id = self.get_unique_id()
+            
+    def get_unique_id(self):
+        
+        def cleanup(s):
+            for item in [' ','-',"'",',','.']:
+                s = s.replace(item,'')
+            return s
+        
+        return '-'.join([cleanup(item.lower().strip()) for item in [self.name,self.position,self.team]])
+            
     def __lt__(self,other):
         return self.rank<other.rank
 
