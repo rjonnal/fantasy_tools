@@ -101,6 +101,9 @@ def build_player_table():
             out_list = row.values.tolist()
             
             name_map_row = fuzzy_get_df(player_name_df,'pff_name',fp_name)
+
+
+            
             if name_map_row is None:
                 name_map_list = name_row_default
             else:
