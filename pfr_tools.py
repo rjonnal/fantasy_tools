@@ -47,6 +47,16 @@ def gamelog_to_fpts(df,position,name):
     return pts
 
 
+def pfr_id_to_url(pfr_id):
+    letter = pfr_id[0].upper()
+    url = 'https://www.pro-football-reference.com/players/%s/%s.htm'%(letter,pfr_id)
+    return url
+
+def pfr_id_to_gamelog_url(pfr_id,year):
+    letter = pfr_id[0].upper()
+    url = 'https://www.pro-football-reference.com/players/%s/%s/gamelog/%d/'%(letter,pfr_id,year)
+    return url
+
     
 def get_player_gamelog(player,year):
     pfr_id = player.pfr_id
@@ -59,9 +69,9 @@ def get_player_gamelog(player,year):
     try:
         df = pd.read_csv(cache_fn)
     except:
-        letter = pfr_id[0].upper()
-        url = 'https://www.pro-football-reference.com/players/%s/%s/gamelog/%d/'%(letter,pfr_id,year)
-        print(url)
+
+        url = pfr_id_to_gamelog_url(pfr_id,year)
+        
         
         dfs = pd.read_html(url)
 
