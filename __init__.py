@@ -13,6 +13,7 @@ from .pfr_tools import check_position_mascot
 from .scraper import get_soup,get_pfr_id_from_google
 import re
 import numpy as np
+from .pfr_id_explicit import dictionary as pfr_id_dict
 
 logging.basicConfig(filename='fantasy_tools.log', level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler())
@@ -129,7 +130,7 @@ def build_player_table():
             # draft_year,draft_pick,draft_round from draft_df['season','round','pick']
 
             player_name_sub_df = fuzzy_get_df(player_name_df,'pff_name',fp_name,return_empty=True)
-            draft_sub_df = fuzzy_get_df(draft_df,'full_name',fp_name,threshold=0.8,verbose=False,return_empty=True)
+            draft_sub_df = fuzzy_get_df(draft_df,'pfr_name',fp_name,threshold=0.8,verbose=False,return_empty=True)
 
             try:
                 pfr_id = relish.load(pfr_id_relish)
@@ -142,9 +143,11 @@ def build_player_table():
                     pfr_id_candidates+=player_name_sub_df['pfr_id'].values.tolist()
 
                 if len(draft_sub_df)>=1:
-                    pfr_id_candidates+=draft_sub_df['playerid'].values.tolist()
+                    pfr_id_candidates+=draft_sub_df['pfr_id'].values.tolist()
 
                 try:
+                    assert all([type(p)==str for p in pfr_id_candidates])
+                    assert all([len(p)>=4 for p in pfr_id_candidates])
                     pfr_id = poll_list(pfr_id_candidates)
                     assert check_position_mascot(pfr_id,position,mascot)
                 except MultipleWinnerException:
@@ -181,71 +184,25 @@ def build_player_table():
                                 test = pair_to_pfr([name_parts[k1],name_parts[k2]])
                                 for n in range(10):
                                     testn = test + '%02d'%n
-                                    if check_position_mascot(testn,position,mascot,verbose=True):
+                                    if check_position_mascot(testn,position,mascot,verbose=False):
                                         pfr_id = testn
                                         break
                             except Exception as e:
                                 print(e)
 
+                # last, last ditch:
+                try:
+                    pfr_id = pfr_id_dict[fp_name]
+                except:
+                    pass
+                
                 if pfr_id=='':
                     print(fp_name,'no pfr_id')
-                else:
-                    relish.save(pfr_id_relish,pfr_id)
-                
-            continue
-                
-            
-            continue
-        
-            print(fp_name,pfr_id_candidates,pfr_id)
-            if pfr_id=='':
-                sys.exit()
-
                     
-                    
-                
-            
-            # we need to merge rows from the name_map and draft data frames with
-            # the row from this player
-            # first, let's reconcile the two columns name_map_df['pfr_id'] and draft_df['pfr_id']
-            # Lee Sharpe has different values for some players:
-
-            
-            
-            try:
-                print(player_name_sub_df.columns)
-                print(draft_sub_df.columns)
-                print(row)
-                break
-            except:
-                pass
-
-            
-            
-            if player_name_sub_df is None:
-                pass
+                relish.save(pfr_id_relish,pfr_id)
 
             continue
-            
-            
-            # if len(player_name_sub_df)==1 and len(draft_sub_df)==1:
-            #    print(player_name_sub_df['pfr_id'])
-            # both of these dataframes have pfr_ids let's make sure they're the same
-
-            
-
-
-
-            
-            
-            
-            #if not fp_name=='Josh Allen':
-            #    continue
-
-            position,rank = posrank_split(row['POS'])
-            if not position in ['QB','RB','WR','TE']:
-                continue
-
+                
             for letter in player_id:
                 try:
                     assert letter in 'abcdefghijklmnopqrstuvwxyz'
