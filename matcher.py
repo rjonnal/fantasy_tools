@@ -2,6 +2,7 @@ from difflib import SequenceMatcher
 import numpy as np
 import sys,os
 from matplotlib import pyplot as plt
+import pandas as pd
 
 def similarity(a, b):
     try:
@@ -9,7 +10,7 @@ def similarity(a, b):
     except Exception as e:
         return 0.0
     
-def fuzzy_get_df(df,column,string,threshold=.85,verbose=False):
+def fuzzy_get_df(df,column,string,threshold=.85,verbose=False,return_empty=False):
     # return row of df where its column matches (or near matches) string
     match = df[df[column]==string]
     if len(match)>=1: # a perfect match
@@ -28,7 +29,10 @@ def fuzzy_get_df(df,column,string,threshold=.85,verbose=False):
         else:
             if verbose:
                 print('No valid entry for %s.'%string)
-            return None
+            if return_empty:
+                return pd.DataFrame([])
+            else:
+                return None
 
 def fuzzy_in(L,string,threshold=.8,verbose=False):
     # return true if string is fuzzy member of L

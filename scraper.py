@@ -6,28 +6,67 @@ import relish
 from bs4 import BeautifulSoup
 import requests
 import sys
+import re
+import time
 
-
-
+class BadResponseException(Exception):
+    pass
 
 def url_to_tag(url):
-    return url.replace('https://','').replace('http://','').replace('/','_')
+    return '_'.join(re.split('\W+',url))
 
-
-def get_soup(url):
-    
+def get_soup(url,sleep=0,verbose=False):
     tag = url_to_tag(url)
-    print(url)
-    print(tag)
+
     try:
         response = relish.load(tag)
-        print('Getting cached %s'%tag)
+        if verbose:
+            print('Getting cached %s'%tag)
     except Exception as e:
+        if sleep:
+            if verbose:
+                print('Sleeping %0.3f seconds.'%sleep)
+        time.sleep(sleep)
+        
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36"}
         response = requests.get(url,headers=headers)
+        if verbose:
+            print('%s, status: %d'%(url,response.status_code))
         relish.save(tag,response)
+        if not response.status_code==200:
+            raise BadResponseException
+
     soup = BeautifulSoup(response.text, 'html.parser')
     return soup
+
+
+def get_pfr_id_from_google(fp_name):
+    name_string = '+'.join(fp_name.split())
+    google_url = 'https://www.google.com/search?q=%s+site:pro-football-reference.com'%name_string
+
+    # can we just use google to get the pfr_id?
+    # we can, but it takes a long time--must sleep at least
+    # 45 sec between calls--maybe more, and once you get
+    # a 429 response (too many calls), may have to wait hours
+    # before trying again.
+    google_soup = get_soup(google_url,sleep=45,verbose=False)
+    links = google_soup.find_all('a')
+    pfr_id_google = ''
+    for k in range(len(links)):
+        item = links.pop(0)
+        pfr_url_google = item.get('href')
+        if not type(pfr_url_google) is str:
+            continue
+        front = 'https://www.pro-football-reference.com/players/'
+        if pfr_url_google.find(front)>-1:
+            toks = pfr_url_google.split('/')
+            # make sure the pfr url letter matches the first letter
+            # of one of the names
+            if not any([toks[-2]==n[0] for n in fp_name.split()]):
+                continue
+            pfr_id_google = toks[-1].split('.')[0]
+    return pfr_id_google
+
 
 def foo():
     table = soup.find('table')

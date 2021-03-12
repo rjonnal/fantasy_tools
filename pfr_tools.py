@@ -9,6 +9,8 @@ import sys,os
 from .tools import Player
 import importlib.resources as pkg_resources
 from . import data as league_data
+from .scraper import get_soup
+import re
 
 with pkg_resources.open_text(league_data, 'pfr_missing.csv') as fid:
     pfr_missing_df = pd.read_csv(fid)
@@ -17,6 +19,38 @@ pfr_missing_dict = {}
 for idx,row in pfr_missing_df.iterrows():
     pfr_missing_dict[row['unique_id']] = row['pfr_id']
 
+def pfr_id_to_url(pfr_id):
+    letter = pfr_id[0].upper()
+    url = 'https://www.pro-football-reference.com/players/%s/%s.htm'%(letter,pfr_id)
+    return url
+
+def pfr_id_to_gamelog_url(pfr_id,year):
+    letter = pfr_id[0].upper()
+    url = 'https://www.pro-football-reference.com/players/%s/%s/gamelog/%d/'%(letter,pfr_id,year)
+    return url
+
+
+def check_position_mascot(pfr_id,position,mascot,verbose=False,strict=False):
+    url = pfr_id_to_url(pfr_id)
+    try:
+        soup = get_soup(url,verbose=verbose)
+        metas = soup.findAll('meta')
+        for k in range(len(metas)):
+            meta = metas.pop(0)
+            content = meta.get('content')
+            if content is not None:
+                if content.find('Pos:')>-1:
+                    term_list = [k.upper() for k in re.split('\W+',content)]
+                    if verbose:
+                        print(position.upper(),mascot.upper(),term_list)
+                    if position.upper() in term_list:
+                        if (not strict) or (mascot.upper() in term_list):
+                                return True
+    except:
+        return False
+    return False
+
+    
 def gamelog_to_fpts(df,position,name):
     print(position)
     requirements = {'QB':['Passing_Cmp','Passing_Yds','Passing_TD','Passing_Int'],
@@ -46,16 +80,6 @@ def gamelog_to_fpts(df,position,name):
             
     return pts
 
-
-def pfr_id_to_url(pfr_id):
-    letter = pfr_id[0].upper()
-    url = 'https://www.pro-football-reference.com/players/%s/%s.htm'%(letter,pfr_id)
-    return url
-
-def pfr_id_to_gamelog_url(pfr_id,year):
-    letter = pfr_id[0].upper()
-    url = 'https://www.pro-football-reference.com/players/%s/%s/gamelog/%d/'%(letter,pfr_id,year)
-    return url
 
     
 def get_player_gamelog(player,year):

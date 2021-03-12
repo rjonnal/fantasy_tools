@@ -9,9 +9,10 @@ from . import data as league_data
 from .tools import League,Player,Team
 from nfldata import data as sharpe_data
 from .matcher import fuzzy_get_df
-from .pfr_tools import pfr_id_to_url
-from .scraper import get_soup
+from .pfr_tools import check_position_mascot
+from .scraper import get_soup,get_pfr_id_from_google
 import re
+import numpy as np
 
 logging.basicConfig(filename='fantasy_tools.log', level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler())
@@ -58,6 +59,22 @@ def posrank_split(posrank):
             rev_pos_string = rev_pos_string + temp[idx]
     return rev_pos_string[::-1],int(rev_rank_string[::-1])
 
+class MultipleWinnerException(Exception):
+    pass
+def poll_list(L):
+    counts = []
+    for item1 in L:
+        count = 0
+        for item2 in L:
+            count+=item1==item2
+        counts.append(count)
+    try:
+        assert not all([c==1 for c in counts])
+    except AssertionError:
+        raise MultipleWinnerException
+    return L[np.argmax(counts)]
+        
+
 
 def get_id(name,position,team):
     name = name.replace(' ','')
@@ -67,111 +84,6 @@ def get_id(name,position,team):
     name = name.replace("'","")
     out = name.lower().strip()+position.lower().strip()+team.lower().strip()
     return out
-
-def build_player_table0():
-    # This function builds a big table of player data out of Lee Sharpe's pff_pfr_map and FP's rankings;
-    # it uses FP's rankings to identify the players of interest (skipping defense and kicker),
-    # and then Sharpe's table to connect with PFF and PFR IDs
-
-    try:
-        player_df = pd.read_csv('./data/player_table.csv')
-    except Exception:
-        rankings_df = get_rankings_df()
-        
-        
-        name_row_default = ['']*4
-        draft_row_default = ['']*10
-        # Now we look for matches in sharpe column 'pff_name', using FP 'PLAYER NAME':
-        
-        player_table = []
-        for idx,row in rankings_df.iterrows():
-            fp_name = row['PLAYER NAME']
-            
-            #if not fp_name=='Josh Allen':
-            #    continue
-
-            position,rank = posrank_split(row['POS'])
-            if not position in ['QB','RB','WR','TE']:
-                continue
-            team = row['TEAM']
-
-            team_row = teams_df[teams_df['Abbreviation']==team]
-            team_name = team_row['Name'].values[0]
-            
-            mascot = team_name.split(' ')[-1]
-        
-            player_id = get_id(fp_name,position,team)
-
-            for letter in player_id:
-                try:
-                    assert letter in 'abcdefghijklmnopqrstuvwxyz'
-                except:
-                    print('%s is not a lower case letter'%letter)
-                    sys.exit()
-                    
-            out_list = row.values.tolist()
-            
-            name_map_df = fuzzy_get_df(player_name_df,'pff_name',fp_name)
-
-            if name_map_df is not None:
-                if len(name_map_df)>1:
-                    for idx,row in name_map_df.iterrows():
-                        url = pfr_id_to_url(row['pfr_id'])
-                        soup = get_soup(url)
-                        metas = soup.findAll('meta')
-                        for k in range(len(metas)):
-                            meta = metas.pop(0)
-                            content = meta.get('content')
-                            if content is not None:
-                                if content.find('Pos:')>-1:
-                                    term_list = [k.upper() for k in re.split('\W+',content)]
-                                    if position.upper() in term_list and mascot.upper() in term_list:
-                                        
-                                        name_map_df = pd.DataFrame([row])
-                                        break
-                                
-            if name_map_df is None:
-                name_map_list = name_row_default
-            else:
-                name_map_list = name_map_df.values.tolist()[0]
-
-            draft_row = fuzzy_get_df(draft_df,'pfr_name',fp_name,threshold=0.8,verbose=True)
-            if draft_row is None:
-                draft_list = draft_row_default
-            else:
-                if len(draft_row)>1:
-                    draft_row = draft_row[draft_row['position']==position]
-                    if len(draft_row)>1:
-                        draft_row = draft_row[draft_row['team']==team]
-                        if len(draft_row)>1:
-                            sys.exit('Too many %s named %s playing for %s.'%(position,fp_name,team))
-                try:
-                    draft_list = draft_row.values.tolist()[0]
-                except:
-                    print('fault:',draft_row)
-                    draft_list = draft_row_default
-
-
-            print(player_id)
-            print(out_list)
-            print(name_map_list)
-            print(draft_list)
-            out_list = [player_id] + out_list + name_map_list + draft_list
-            print(len(out_list),out_list)
-            assert len(out_list)==24
-            player_table.append(out_list)
-            
-        fp_columns = ['RK', 'TIERS', 'PLAYER NAME', 'TEAM', 'POS', 'BEST', 'WORST', 'AVG.', 'STD.DEV']
-        name_map_columns = ['pff_id', 'pfr_id', 'pff_name', 'pff_url_name']
-        draft_columns = ['season', 'team', 'round', 'pick', 'playerid', 'full_name', 'name', 'side', 'category', 'position']
-        
-        output_columns = ['unique_id']+fp_columns+name_map_columns+draft_columns
-
-        player_df = pd.DataFrame(player_table,columns=output_columns)
-        player_df.to_csv('./data/player_table.csv')
-    return player_df
-
-
 
 def build_player_table():
     # This function builds a big table of player data out of Lee Sharpe's pff_pfr_map and FP's rankings;
@@ -197,15 +109,127 @@ def build_player_table():
         player_table = []
         for idx,row in rankings_df.iterrows():
             fp_name = row['PLAYER NAME']
+            position,rank = posrank_split(row['POS'])
+            if not position in ['QB','RB','WR','TE']:
+                continue
 
+            team = row['TEAM']
+            team_row = teams_df[teams_df['Abbreviation']==team]
+            team_name = team_row['Name'].values[0]
+            mascot = team_name.split(' ')[-1]
+        
+            player_id = get_id(fp_name,position,team)
+            pfr_id_relish = 'pfr_id_%s'%player_id
+
+            # Here we want to add the following columns to this row:
+            # pfr_id, which is player_name_df['pfr_id'] and draft_df['playerid'], and
+            #     which we will also google to verify
+            # pff_url_name, from player_name_df['pff_url_name'], otherwise generate
+            #     using the player's name
+            # draft_year,draft_pick,draft_round from draft_df['season','round','pick']
+
+            player_name_sub_df = fuzzy_get_df(player_name_df,'pff_name',fp_name,return_empty=True)
+            draft_sub_df = fuzzy_get_df(draft_df,'full_name',fp_name,threshold=0.8,verbose=False,return_empty=True)
+
+            try:
+                pfr_id = relish.load(pfr_id_relish)
+            except:
+
+                pfr_id_candidates = []
+                pfr_id_candidates.append(get_pfr_id_from_google(fp_name))
+
+                if len(player_name_sub_df)>=1:
+                    pfr_id_candidates+=player_name_sub_df['pfr_id'].values.tolist()
+
+                if len(draft_sub_df)>=1:
+                    pfr_id_candidates+=draft_sub_df['playerid'].values.tolist()
+
+                try:
+                    pfr_id = poll_list(pfr_id_candidates)
+                    assert check_position_mascot(pfr_id,position,mascot)
+                except MultipleWinnerException:
+                    pfr_id = ''
+                    for cand in pfr_id_candidates:
+                        if len(cand)>=4:
+                            if check_position_mascot(cand,position,mascot):
+                                pfr_id = cand
+                                break
+                except AssertionError:
+                    pfr_id = ''
+
+                if pfr_id=='':
+                    #print('last_ditch',fp_name)
+                    def pair_to_pfr(pair):
+                        return pair[1][:4]+pair[0][:2]
+
+                    def fix(s):
+                        out = []
+                        for a in s:
+                            test = a.replace("'",'').replace(',','').replace('-','').replace('.','')
+                            if a==test:
+                                out.append(a)
+                            else:
+                                out = out + [a,test]
+                        return out
+
+                    name_parts = fp_name.split()
+                    name_parts = fix(name_parts)
+                    np = len(name_parts)
+                    for k1 in range(np):
+                        for k2 in range(k1+1,np):
+                            try:
+                                test = pair_to_pfr([name_parts[k1],name_parts[k2]])
+                                for n in range(10):
+                                    testn = test + '%02d'%n
+                                    if check_position_mascot(testn,position,mascot,verbose=True):
+                                        pfr_id = testn
+                                        break
+                            except Exception as e:
+                                print(e)
+
+                if pfr_id=='':
+                    print(fp_name,'no pfr_id')
+                else:
+                    relish.save(pfr_id_relish,pfr_id)
+                
+            continue
+                
+            
+            continue
+        
+            print(fp_name,pfr_id_candidates,pfr_id)
+            if pfr_id=='':
+                sys.exit()
+
+                    
+                    
+                
+            
             # we need to merge rows from the name_map and draft data frames with
             # the row from this player
-            # first, let's reconcile the two columns name_map_df['pfr_id'] and draft_df['playerid']
-            # not sure why Lee Sharpe has different values for some players:
-            player_name_sub_df = fuzzy_get_df(player_name_df,'pff_name',fp_name)
-            draft_sub_df = fuzzy_get_df(draft_df,'pfr_name',fp_name,threshold=0.8,verbose=True)
+            # first, let's reconcile the two columns name_map_df['pfr_id'] and draft_df['pfr_id']
+            # Lee Sharpe has different values for some players:
 
+            
+            
+            try:
+                print(player_name_sub_df.columns)
+                print(draft_sub_df.columns)
+                print(row)
+                break
+            except:
+                pass
 
+            
+            
+            if player_name_sub_df is None:
+                pass
+
+            continue
+            
+            
+            # if len(player_name_sub_df)==1 and len(draft_sub_df)==1:
+            #    print(player_name_sub_df['pfr_id'])
             # both of these dataframes have pfr_ids let's make sure they're the same
 
             
@@ -221,14 +245,6 @@ def build_player_table():
             position,rank = posrank_split(row['POS'])
             if not position in ['QB','RB','WR','TE']:
                 continue
-            team = row['TEAM']
-
-            team_row = teams_df[teams_df['Abbreviation']==team]
-            team_name = team_row['Name'].values[0]
-            
-            mascot = team_name.split(' ')[-1]
-        
-            player_id = get_id(fp_name,position,team)
 
             for letter in player_id:
                 try:
@@ -391,3 +407,111 @@ def build_league(league_id, year, use_cached=False):
     league.teams.sort()
     #relish.save(relish_id,league)
     return league
+
+
+
+def build_player_table0():
+    # This function builds a big table of player data out of Lee Sharpe's pff_pfr_map and FP's rankings;
+    # it uses FP's rankings to identify the players of interest (skipping defense and kicker),
+    # and then Sharpe's table to connect with PFF and PFR IDs
+
+    try:
+        player_df = pd.read_csv('./data/player_table.csv')
+    except Exception:
+        rankings_df = get_rankings_df()
+        
+        
+        name_row_default = ['']*4
+        draft_row_default = ['']*10
+        # Now we look for matches in sharpe column 'pff_name', using FP 'PLAYER NAME':
+        
+        player_table = []
+        for idx,row in rankings_df.iterrows():
+            fp_name = row['PLAYER NAME']
+            
+            #if not fp_name=='Josh Allen':
+            #    continue
+
+            position,rank = posrank_split(row['POS'])
+            if not position in ['QB','RB','WR','TE']:
+                continue
+            team = row['TEAM']
+
+            team_row = teams_df[teams_df['Abbreviation']==team]
+            team_name = team_row['Name'].values[0]
+            
+            mascot = team_name.split(' ')[-1]
+        
+            player_id = get_id(fp_name,position,team)
+
+            for letter in player_id:
+                try:
+                    assert letter in 'abcdefghijklmnopqrstuvwxyz'
+                except:
+                    print('%s is not a lower case letter'%letter)
+                    sys.exit()
+                    
+            out_list = row.values.tolist()
+            
+            name_map_df = fuzzy_get_df(player_name_df,'pff_name',fp_name)
+
+            if name_map_df is not None:
+                if len(name_map_df)>1:
+                    for idx,row in name_map_df.iterrows():
+                        url = pfr_id_to_url(row['pfr_id'])
+                        soup = get_soup(url)
+                        metas = soup.findAll('meta')
+                        for k in range(len(metas)):
+                            meta = metas.pop(0)
+                            content = meta.get('content')
+                            if content is not None:
+                                if content.find('Pos:')>-1:
+                                    term_list = [k.upper() for k in re.split('\W+',content)]
+                                    if position.upper() in term_list and mascot.upper() in term_list:
+                                        
+                                        name_map_df = pd.DataFrame([row])
+                                        break
+                                
+            if name_map_df is None:
+                name_map_list = name_row_default
+            else:
+                name_map_list = name_map_df.values.tolist()[0]
+
+            draft_row = fuzzy_get_df(draft_df,'pfr_name',fp_name,threshold=0.8,verbose=True)
+            if draft_row is None:
+                draft_list = draft_row_default
+            else:
+                if len(draft_row)>1:
+                    draft_row = draft_row[draft_row['position']==position]
+                    if len(draft_row)>1:
+                        draft_row = draft_row[draft_row['team']==team]
+                        if len(draft_row)>1:
+                            sys.exit('Too many %s named %s playing for %s.'%(position,fp_name,team))
+                try:
+                    draft_list = draft_row.values.tolist()[0]
+                except:
+                    print('fault:',draft_row)
+                    draft_list = draft_row_default
+
+
+            print(player_id)
+            print(out_list)
+            print(name_map_list)
+            print(draft_list)
+            out_list = [player_id] + out_list + name_map_list + draft_list
+            print(len(out_list),out_list)
+            assert len(out_list)==24
+            player_table.append(out_list)
+            
+        fp_columns = ['RK', 'TIERS', 'PLAYER NAME', 'TEAM', 'POS', 'BEST', 'WORST', 'AVG.', 'STD.DEV']
+        name_map_columns = ['pff_id', 'pfr_id', 'pff_name', 'pff_url_name']
+        draft_columns = ['season', 'team', 'round', 'pick', 'playerid', 'full_name', 'name', 'side', 'category', 'position']
+        
+        output_columns = ['unique_id']+fp_columns+name_map_columns+draft_columns
+
+        player_df = pd.DataFrame(player_table,columns=output_columns)
+        player_df.to_csv('./data/player_table.csv')
+    return player_df
+
+
+
