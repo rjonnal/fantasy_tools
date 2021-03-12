@@ -108,6 +108,20 @@ def build_player_table():
 
         
         player_table = []
+        # Here we want to add the following columns to this row:
+        # pfr_id, which is player_name_df['pfr_id'] and draft_df['playerid'], and
+        #     which we will also google to verify
+        # pff_url_name, from player_name_df['pff_url_name'], otherwise generate
+        #     using the player's name
+        # draft_year,draft_pick,draft_round from draft_df['season','round','pick']
+
+        # new columns:
+        col_pfr_id = []
+        col_pfr_url_name = []
+        col_draft_year = []
+        col_draft_round = []
+        col_draft_pick = []
+        
         for idx,row in rankings_df.iterrows():
             fp_name = row['PLAYER NAME']
             position,rank = posrank_split(row['POS'])
@@ -120,14 +134,14 @@ def build_player_table():
             mascot = team_name.split(' ')[-1]
         
             player_id = get_id(fp_name,position,team)
+            for letter in player_id:
+                try:
+                    assert letter in 'abcdefghijklmnopqrstuvwxyz'
+                except:
+                    print('%s is not a lower case letter'%letter)
+                    sys.exit()
+                    
             pfr_id_relish = 'pfr_id_%s'%player_id
-
-            # Here we want to add the following columns to this row:
-            # pfr_id, which is player_name_df['pfr_id'] and draft_df['playerid'], and
-            #     which we will also google to verify
-            # pff_url_name, from player_name_df['pff_url_name'], otherwise generate
-            #     using the player's name
-            # draft_year,draft_pick,draft_round from draft_df['season','round','pick']
 
             player_name_sub_df = fuzzy_get_df(player_name_df,'pff_name',fp_name,return_empty=True)
             draft_sub_df = fuzzy_get_df(draft_df,'pfr_name',fp_name,threshold=0.8,verbose=False,return_empty=True)
@@ -201,40 +215,17 @@ def build_player_table():
                     
                 relish.save(pfr_id_relish,pfr_id)
 
-            continue
-                
-            for letter in player_id:
-                try:
-                    assert letter in 'abcdefghijklmnopqrstuvwxyz'
-                except:
-                    print('%s is not a lower case letter'%letter)
-                    sys.exit()
-                    
-            out_list = row.values.tolist()
-            
+            col_pfr_id.append(pfr_id)
 
-            if player_name_sub_df is not None:
-                if len(player_name_sub_df)>1:
-                    for idx,row in player_name_sub_df.iterrows():
-                        url = pfr_id_to_url(row['pfr_id'])
-                        soup = get_soup(url)
-                        metas = soup.findAll('meta')
-                        for k in range(len(metas)):
-                            meta = metas.pop(0)
-                            content = meta.get('content')
-                            if content is not None:
-                                if content.find('Pos:')>-1:
-                                    term_list = [k.upper() for k in re.split('\W+',content)]
-                                    if position.upper() in term_list and mascot.upper() in term_list:
-                                        
-                                        player_name_sub_df = pd.DataFrame([row])
-                                        break
-                                
+            def make_pfr_url_name(name):
+                pass
+
+                
             if player_name_sub_df is None:
                 name_map_list = player_name_sub_df_default
             else:
-                name_map_list = player_name_sub_df.values.tolist()[0]
-
+                if len(player_name_sub_df)==1:
+                    pfr_url_name = player_name_sub_df['pfr_url_name']
 
             if draft_sub_df is None:
                 draft_list = draft_sub_df_default
