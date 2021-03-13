@@ -14,6 +14,7 @@ from .scraper import get_soup,get_pfr_id_from_google
 import re
 import numpy as np
 from .pfr_id_explicit import dictionary as pfr_id_dict
+from .entry_years import dictionary as entry_years_dictionary
 
 logging.basicConfig(filename='fantasy_tools.log', level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler())
@@ -62,7 +63,7 @@ def posrank_split(posrank):
 
 class MultipleWinnerException(Exception):
     pass
-def poll_list(L):
+def poll_list0(L):
     counts = []
     for item1 in L:
         count = 0
@@ -75,8 +76,25 @@ def poll_list(L):
         raise MultipleWinnerException
     return L[np.argmax(counts)]
         
+def poll_list(L):
+    counts = {}
+    for k in L:
+        if k in counts.keys():
+            counts[k]+=1
+        else:
+            counts[k]=1
 
-
+    print(counts)
+    keys = [k for k in counts.keys()]
+    vals = [counts[k] for k in keys]
+    max_count = np.max(vals)
+    print(max_count)
+    winners = []
+    for idx,val in enumerate(vals):
+        if val==max_count:
+            winners.append(keys[idx])
+    return winners
+    
 def get_id(name,position,team):
     name = name.replace(' ','')
     name = name.replace('.','')
@@ -92,56 +110,52 @@ def build_player_table():
     # and then Sharpe's table to connect with PFF and PFR IDs
 
     try:
-        foob=boof
         player_df = pd.read_csv('./data/player_table.csv')
     except Exception:
         rankings_df = get_rankings_df()
-        
-        player_name_sub_df_default = ['']*4
-        draft_sub_df_default = ['']*10
-
-        fp_columns = ['RK', 'TIERS', 'PLAYER NAME', 'TEAM', 'POS', 'BEST', 'WORST', 'AVG.', 'STD.DEV']
-        name_map_columns = ['pff_id', 'pfr_id', 'pff_name', 'pff_url_name']
-        draft_columns = ['season', 'team', 'round', 'pick', 'playerid', 'full_name', 'name', 'side', 'category', 'position']
-        
-        output_columns = ['unique_id']+fp_columns+name_map_columns+draft_columns
-
         
         player_table = []
         # Here we want to add the following columns to this row:
         # pfr_id, which is player_name_df['pfr_id'] and draft_df['playerid'], and
         #     which we will also google to verify
-        # pff_url_name, from player_name_df['pff_url_name'], otherwise generate
-        #     using the player's name
         # draft_year,draft_pick,draft_round from draft_df['season','round','pick']
 
         # new columns:
         col_pfr_id = []
-        col_pfr_url_name = []
         col_draft_year = []
         col_draft_round = []
         col_draft_pick = []
+        col_unique_id = []
         
+        player_df_list = []
+
+        n_rows = len(rankings_df)
         for idx,row in rankings_df.iterrows():
             fp_name = row['PLAYER NAME']
+            print('%04d of %04d: %s'%(idx+1,n_rows,fp_name))
             position,rank = posrank_split(row['POS'])
             if not position in ['QB','RB','WR','TE']:
                 continue
 
+
+            player_df_list.append(row)
+            
             team = row['TEAM']
             team_row = teams_df[teams_df['Abbreviation']==team]
             team_name = team_row['Name'].values[0]
             mascot = team_name.split(' ')[-1]
         
-            player_id = get_id(fp_name,position,team)
-            for letter in player_id:
+            unique_id = get_id(fp_name,position,team)
+            col_unique_id.append(unique_id)
+            
+            for letter in unique_id:
                 try:
                     assert letter in 'abcdefghijklmnopqrstuvwxyz'
                 except:
                     print('%s is not a lower case letter'%letter)
                     sys.exit()
                     
-            pfr_id_relish = 'pfr_id_%s'%player_id
+            pfr_id_relish = 'pfr_id_%s'%unique_id
 
             player_name_sub_df = fuzzy_get_df(player_name_df,'pff_name',fp_name,return_empty=True)
             draft_sub_df = fuzzy_get_df(draft_df,'pfr_name',fp_name,threshold=0.8,verbose=False,return_empty=True)
@@ -149,7 +163,10 @@ def build_player_table():
             try:
                 pfr_id = relish.load(pfr_id_relish)
             except:
-
+                verbose = True
+                if verbose:
+                    print('Determining pfr_id for player %s.'%fp_name)
+                    
                 pfr_id_candidates = []
                 pfr_id_candidates.append(get_pfr_id_from_google(fp_name))
 
@@ -159,54 +176,73 @@ def build_player_table():
                 if len(draft_sub_df)>=1:
                     pfr_id_candidates+=draft_sub_df['pfr_id'].values.tolist()
 
-                try:
-                    assert all([type(p)==str for p in pfr_id_candidates])
-                    assert all([len(p)>=4 for p in pfr_id_candidates])
-                    pfr_id = poll_list(pfr_id_candidates)
-                    assert check_position_mascot(pfr_id,position,mascot)
-                except MultipleWinnerException:
+                if verbose:
+                    print('candidates from google, player_name_sub_df, draft_sub_df:')
+                    print('\t',pfr_id_candidates)
+
+                pfr_id_candidates = [p for p in pfr_id_candidates if type(p)==str]
+                pfr_id_candidates = [p for p in pfr_id_candidates if len(p)>4]
+                
+                if len(pfr_id_candidates)>0:
+                    if verbose:
+                        print('candidates after cleanup')
+                        print(pfr_id_candidates)
+
+                    winners = poll_list(pfr_id_candidates)
+                    if verbose:
+                        print('candidates after polling')
+                        print(winners)
+
+                    for w in winners:
+                        if check_position_mascot(w,position,mascot):
+                            pfr_id = w
+                            break
+
+                    if verbose:
+                        print('winning candidate for %s is %s'%(fp_name,pfr_id))
+
+                    if pfr_id=='':
+                        if verbose:
+                            print('winning candidate was empty string')
+
+                        def pair_to_pfr(pair):
+                            return pair[1][:4]+pair[0][:2]
+
+                        def fix(s):
+                            out = []
+                            for a in s:
+                                test = a.replace("'",'').replace(',','').replace('-','')
+                                if a==test:
+                                    out.append(a)
+                                else:
+                                    out = out + [a,test]
+                            return out
+
+                        name_parts = fp_name.split()
+                        name_parts = fix(name_parts)
+                        np = len(name_parts)
+                        for k1 in range(np):
+                            for k2 in range(k1+1,np):
+                                try:
+                                    test = pair_to_pfr([name_parts[k1],name_parts[k2]])
+                                    for n in range(10):
+                                        testn = test + '%02d'%n
+                                        if verbose:
+                                            print('Brute force checking %s.'%testn)
+                                        if check_position_mascot(testn,position,mascot,verbose=True):
+                                            print('%s checks out. Using it unless dictionary specifies otherwise.'%testn)
+                                            pfr_id = testn
+                                            break
+                                except Exception as e:
+                                    print(e)
+                else:
                     pfr_id = ''
-                    for cand in pfr_id_candidates:
-                        if len(cand)>=4:
-                            if check_position_mascot(cand,position,mascot):
-                                pfr_id = cand
-                                break
-                except AssertionError:
-                    pfr_id = ''
-
-                if pfr_id=='':
-                    #print('last_ditch',fp_name)
-                    def pair_to_pfr(pair):
-                        return pair[1][:4]+pair[0][:2]
-
-                    def fix(s):
-                        out = []
-                        for a in s:
-                            test = a.replace("'",'').replace(',','').replace('-','').replace('.','')
-                            if a==test:
-                                out.append(a)
-                            else:
-                                out = out + [a,test]
-                        return out
-
-                    name_parts = fp_name.split()
-                    name_parts = fix(name_parts)
-                    np = len(name_parts)
-                    for k1 in range(np):
-                        for k2 in range(k1+1,np):
-                            try:
-                                test = pair_to_pfr([name_parts[k1],name_parts[k2]])
-                                for n in range(10):
-                                    testn = test + '%02d'%n
-                                    if check_position_mascot(testn,position,mascot,verbose=False):
-                                        pfr_id = testn
-                                        break
-                            except Exception as e:
-                                print(e)
-
+                    
                 # last, last ditch:
                 try:
                     pfr_id = pfr_id_dict[fp_name]
+                    if verbose:
+                        print('%s specified in dictionary. Using it.'%pfr_id)
                 except:
                     pass
                 
@@ -217,43 +253,38 @@ def build_player_table():
 
             col_pfr_id.append(pfr_id)
 
-            def make_pfr_url_name(name):
-                pass
 
-                
-            if player_name_sub_df is None:
-                name_map_list = player_name_sub_df_default
-            else:
-                if len(player_name_sub_df)==1:
-                    pfr_url_name = player_name_sub_df['pfr_url_name']
-
-            if draft_sub_df is None:
-                draft_list = draft_sub_df_default
-            else:
-                if len(draft_sub_df)>1:
-                    draft_sub_df = draft_sub_df[draft_sub_df['position']==position]
+            try:
+                y,r,p = entry_years_dictionary[unique_id]
+                col_draft_year.append(y)
+                col_draft_round.append(r)
+                col_draft_pick.append(p)
+            except KeyError:
+                if pfr_id=='':
+                    col_draft_year.append(2021)
+                    col_draft_round.append(0)
+                    col_draft_pick.append(0)
+                else:
                     if len(draft_sub_df)>1:
-                        draft_sub_df = draft_sub_df[draft_sub_df['team']==team]
-                        if len(draft_sub_df)>1:
-                            sys.exit('Too many %s named %s playing for %s.'%(position,fp_name,team))
-                try:
-                    draft_list = draft_sub_df.values.tolist()[0]
-                except:
-                    print('fault:',draft_sub_df)
-                    draft_list = draft_sub_df_default
+                        draft_sub_df = draft_sub_df[draft_sub_df['pfr_id']==pfr_id]
+                    if len(draft_sub_df)==0:
+                        col_draft_year.append(0)
+                        col_draft_round.append(0)
+                        col_draft_pick.append(0)
+                    elif len(draft_sub_df)==1:
+                        col_draft_year.append(draft_sub_df['season'].values[0])
+                        col_draft_round.append(draft_sub_df['round'].values[0])
+                        col_draft_pick.append(draft_sub_df['pick'].values[0])
 
-            out_list = [player_id] + out_list + name_map_list + draft_list
 
-            for c,v in zip(output_columns,out_list):
-                print(c,v)
-            print()
-            continue
             
-            assert len(out_list)==24
-            player_table.append(out_list)
-            
-
-        player_df = pd.DataFrame(player_table,columns=output_columns)
+        player_df = pd.DataFrame(player_df_list)
+        player_df['pfr_id'] = col_pfr_id
+        player_df['draft_year'] = col_draft_year
+        player_df['draft_round'] = col_draft_round
+        player_df['draft_pick'] = col_draft_pick
+        player_df['unique_id'] = col_unique_id
+        
         player_df.to_csv('./data/player_table.csv')
     return player_df
 
@@ -355,111 +386,3 @@ def build_league(league_id, year, use_cached=False):
     league.teams.sort()
     #relish.save(relish_id,league)
     return league
-
-
-
-def build_player_table0():
-    # This function builds a big table of player data out of Lee Sharpe's pff_pfr_map and FP's rankings;
-    # it uses FP's rankings to identify the players of interest (skipping defense and kicker),
-    # and then Sharpe's table to connect with PFF and PFR IDs
-
-    try:
-        player_df = pd.read_csv('./data/player_table.csv')
-    except Exception:
-        rankings_df = get_rankings_df()
-        
-        
-        name_row_default = ['']*4
-        draft_row_default = ['']*10
-        # Now we look for matches in sharpe column 'pff_name', using FP 'PLAYER NAME':
-        
-        player_table = []
-        for idx,row in rankings_df.iterrows():
-            fp_name = row['PLAYER NAME']
-            
-            #if not fp_name=='Josh Allen':
-            #    continue
-
-            position,rank = posrank_split(row['POS'])
-            if not position in ['QB','RB','WR','TE']:
-                continue
-            team = row['TEAM']
-
-            team_row = teams_df[teams_df['Abbreviation']==team]
-            team_name = team_row['Name'].values[0]
-            
-            mascot = team_name.split(' ')[-1]
-        
-            player_id = get_id(fp_name,position,team)
-
-            for letter in player_id:
-                try:
-                    assert letter in 'abcdefghijklmnopqrstuvwxyz'
-                except:
-                    print('%s is not a lower case letter'%letter)
-                    sys.exit()
-                    
-            out_list = row.values.tolist()
-            
-            name_map_df = fuzzy_get_df(player_name_df,'pff_name',fp_name)
-
-            if name_map_df is not None:
-                if len(name_map_df)>1:
-                    for idx,row in name_map_df.iterrows():
-                        url = pfr_id_to_url(row['pfr_id'])
-                        soup = get_soup(url)
-                        metas = soup.findAll('meta')
-                        for k in range(len(metas)):
-                            meta = metas.pop(0)
-                            content = meta.get('content')
-                            if content is not None:
-                                if content.find('Pos:')>-1:
-                                    term_list = [k.upper() for k in re.split('\W+',content)]
-                                    if position.upper() in term_list and mascot.upper() in term_list:
-                                        
-                                        name_map_df = pd.DataFrame([row])
-                                        break
-                                
-            if name_map_df is None:
-                name_map_list = name_row_default
-            else:
-                name_map_list = name_map_df.values.tolist()[0]
-
-            draft_row = fuzzy_get_df(draft_df,'pfr_name',fp_name,threshold=0.8,verbose=True)
-            if draft_row is None:
-                draft_list = draft_row_default
-            else:
-                if len(draft_row)>1:
-                    draft_row = draft_row[draft_row['position']==position]
-                    if len(draft_row)>1:
-                        draft_row = draft_row[draft_row['team']==team]
-                        if len(draft_row)>1:
-                            sys.exit('Too many %s named %s playing for %s.'%(position,fp_name,team))
-                try:
-                    draft_list = draft_row.values.tolist()[0]
-                except:
-                    print('fault:',draft_row)
-                    draft_list = draft_row_default
-
-
-            print(player_id)
-            print(out_list)
-            print(name_map_list)
-            print(draft_list)
-            out_list = [player_id] + out_list + name_map_list + draft_list
-            print(len(out_list),out_list)
-            assert len(out_list)==24
-            player_table.append(out_list)
-            
-        fp_columns = ['RK', 'TIERS', 'PLAYER NAME', 'TEAM', 'POS', 'BEST', 'WORST', 'AVG.', 'STD.DEV']
-        name_map_columns = ['pff_id', 'pfr_id', 'pff_name', 'pff_url_name']
-        draft_columns = ['season', 'team', 'round', 'pick', 'playerid', 'full_name', 'name', 'side', 'category', 'position']
-        
-        output_columns = ['unique_id']+fp_columns+name_map_columns+draft_columns
-
-        player_df = pd.DataFrame(player_table,columns=output_columns)
-        player_df.to_csv('./data/player_table.csv')
-    return player_df
-
-
-
