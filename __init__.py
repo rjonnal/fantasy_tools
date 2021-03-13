@@ -306,7 +306,7 @@ def build_league(league_id, year, use_cached=False):
             
     os.makedirs('.requests_cache',exist_ok=True)
     
-    requests_cache.install_cache(cache_name='.requests_cache/espn_cache', backend='sqlite', expire_after=7200)
+    requests_cache.install_cache(cache_name='.requests_cache/espn_cache', backend='sqlite', expire_after=72000000)
 
     url = "https://fantasy.espn.com/apis/v3/games/ffl/seasons/%d/segments/0/leagues/%d"%(year,league_id)
     swid_cookie = '720838F2-19CB-4C50-8AB7-41E1D10796F0'
@@ -324,6 +324,7 @@ def build_league(league_id, year, use_cached=False):
                                params={"view": "mTeam"})
     logging.info("Got ESPN team data; time: {0} / used cache: {1}".format(now, team_page.from_cache))
 
+    
 
     position_dict = {1:'QB',
                      2:'RB',
@@ -384,5 +385,5 @@ def build_league(league_id, year, use_cached=False):
         league.append(team)
 
     league.teams.sort()
-    #relish.save(relish_id,league)
+    relish.save(relish_id,league)
     return league

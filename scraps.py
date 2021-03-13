@@ -1,3 +1,216 @@
+    def fix_roster(self,roster,rookie_year):
+
+        out = [p for p in roster]
+
+        def remove_worst(position,plist):
+            wild = position=='*'
+            poslist = [p for p in plist if (p.position==position or wild)]
+            nposlist = [p for p in plist if ((not p.position==position) and (not wild))]
+            poslist.sort()
+            poslist.pop(-1)
+            return sorted(poslist+nposlist)
+        
+        while self.npos('QB',out)>3:
+            out = remove_worst('QB',out)
+
+        if self.npos('QB',out)==3 and not self.has_rookie(self.get_corps('QB',out), rookie_year):
+            out = remove_worst('QB',out)
+
+        while self.npos('RB',out)>3:
+            out = remove_worst('RB',out)
+
+        if self.npos('RB',out)==3 and not self.has_rookie(self.get_corps('RB',out), rookie_year):
+            out = remove_worst('RB',out)
+
+        while self.npos('WR',out)>3:
+            out = remove_worst('WR',out)
+
+        if self.npos('WR',out)==3 and not self.has_rookie(self.get_corps('WR',out), rookie_year):
+            out = remove_worst('WR',out)
+
+        while self.npos('TE',out)>2:
+            out = remove_worst('TE',out)
+
+        if self.npos('TE',out)==2 and not self.has_rookie(self.get_corps('TE',out), rookie_year):
+            out = remove_worst('TE',out)
+
+        while len(out)>9:
+            out = remove_worst('*',out)
+            
+        return out
+
+    
+    def get_keepers0(self,rookie_year,verbose=False):
+        self.players.sort()
+
+        players = [p for p in self.players]
+        
+        if verbose:
+            logging.info('get_keepers run by %s'%self)
+            
+        positions = ['QB','RB','WR','TE']
+        counts = {}
+        limits = {}
+        for pos in positions:
+            counts[pos] = 0
+        
+        limits['QB'] = 2
+        limits['RB'] = 3
+        limits['WR'] = 3
+        limits['TE'] = 2
+
+        keepers = []
+
+        # first let's add our highest rank rookie
+        rookies = [p for p in self.players if p.draft_year==rookie_year]
+        try:
+            rookies.sort()
+            keepers.append(rookies[0])
+            players.remove(rookies[0])
+            counts[rookies[0].position]+=1
+            rookies.pop(0)
+            total_limit = 9
+        except:
+            # no rookies!
+            total_limit = 8
+        
+        for pos in positions:
+            if verbose:
+                logging.info('Getting initial %ss.'%pos)
+            candidates = self.get_corps(pos,players)
+            candidates.sort()#key = lambda c: c.rank)
+            if verbose:
+                logging.info('%s candidates:'%pos)
+                logging.info(candidates)
+            while counts[pos]<limits[pos] and len(candidates)>=1:
+                temp = candidates.pop(0)
+                players.remove(temp)
+                if verbose:
+                    logging.info('Adding %s to keepers.'%temp)
+                keepers.append(temp)
+                counts[pos]+=1
+
+        #keepers = self.fix_roster(keepers,rookie_year)
+
+        while len(keepers)>total_limit:
+            rk = [p for p in keepers if p.draft_year==rookie_year]
+            vk = [p for p in keepers if not p in rk]
+            rk.sort()
+            vk.sort()
+            keepers.remove(vk[-1])
+            
+        if verbose:
+            logging.info('Keeping (%d):'%len(keepers))
+            logging.info(keepers)
+            logging.info('Dropping (%d):'%len(players))
+            logging.info(players)
+
+        if verbose:
+            logging.info('')
+
+        return keepers
+
+
+
+    def get_keepers(self,rookie_year,verbose=False):
+
+        # It's simple. You have to keep 9 playrs. You can keep up to 2 QBs, 5 WR/RBs,
+        # 1 TE and as many place kickers and defenses you want. However, if a player
+        # is a rookie, you can keep that player in excess of the limits set forth above
+        # except you can never under any circumstance keep more than 3 RBs or more than 3 WRs!
+
+        # 1. Set up initial limits 2 QB, 2 WR, 2 RB, 1 TE, and fill them by rank
+        # 2. Take next highest rank and:
+        #    a. If rookie, add to his slot, and go to step 3.
+        #    b. If he's a veteran and his slot contains a rookie, add him to his slot, and go to step 3.
+        #    c. Repeat 2
+        # 3. If keepers contain 2 RBs and 2 WRs, add highest RB/WR and quit
+        #    Otherwise, if keepers contain 3 RBs, add highest WR and quit
+        #    Otherwise, if keepers contain 3 WRs, add highest RB and quit
+
+        self.players.sort()
+
+        players = [p for p in self.players]
+        
+        if verbose:
+            logging.info('get_keepers run by %s'%self)
+            
+        positions = ['QB','RB','WR','TE']
+        counts = {}
+        initial_limits = {}
+        
+        for pos in positions:
+            counts[pos] = 0
+        
+        initial_limits['QB'] = 2
+        initial_limits['RB'] = 2
+        initial_limits['WR'] = 2
+        initial_limits['TE'] = 1
+
+        
+        keepers = {}
+        for pos in positions:
+            keepers[pos] = sorted(self.get_corps(pos))[:initial_limits[pos]]
+            for k in keepers[pos]:
+                players.remove(k)
+
+        if verbose:
+            logging.info('Step 1')
+            logging.info(keepers)
+            logging.info(players)
+            logging.info()
+        
+                
+        players.sort()
+
+        for idx,p in enumerate(players):
+            if p.draft_year==rookie_year:
+                keepers[p.position].append(p)
+                players.remove(p)
+                break
+            elif any([a.draft_year==rookie_year for a in keepers[p.position]]):
+                keepers[p.position].append(p)
+                players.remove(p)
+                break
+
+        if verbose:
+            logging.info('Step 2')
+            logging.info(keepers)
+            logging.info(players)
+            logging.info()
+
+        wrrbs = [p for p in players if p.position in ['RB','WR']]
+        rbs = [p for p in players if p.position in ['RB']]
+        wrs = [p for p in players if p.position in ['WR']]
+        wrrbs.sort()
+        rbs.sort()
+        wrs.sort()
+        
+        if len(keepers['WR'])==2 and len(keepers['RB'])==2:
+            p = wrrbs[0]
+            keepers[p.position].append(p)
+            players.remove(p)
+        elif len(keepers['WR'])==3 and any([a.draft_year==rookie_year for a in keepers['WR']]):
+            p = rbs[0]
+            keepers[p.position].append(p)
+            players.remove(p)
+        elif len(keepers['RB'])==3 and any([a.draft_year==rookie_year for a in keepers['RB']]):
+            p = wrs[0]
+            keepers[p.position].append(p)
+            players.remove(p)
+
+        if verbose:
+            logging.info('Step 3')
+            logging.info(keepers)
+            logging.info(players)
+            logging.info()
+            logging.info()
+        
+        out = []
+        for pos in positions:
+            out = out + sorted(keepers[pos])
+        return out
+    
 
 
 
