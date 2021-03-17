@@ -40,7 +40,7 @@ def get_soup(url,sleep=0,verbose=False):
     return soup
 
 
-def get_pfr_id_from_google(fp_name):
+def get_pfr_id_from_google(fp_name,sleep_time=45):
     name_string = '+'.join(fp_name.split())
     google_url = 'https://www.google.com/search?q=%s+site:pro-football-reference.com'%name_string
 
@@ -49,7 +49,8 @@ def get_pfr_id_from_google(fp_name):
     # 45 sec between calls--maybe more, and once you get
     # a 429 response (too many calls), may have to wait hours
     # before trying again.
-    google_soup = get_soup(google_url,sleep=45,verbose=False)
+    print('Googling %s, waiting %d s.'%(fp_name,sleep_time))
+    google_soup = get_soup(google_url,sleep=sleep_time,verbose=False)
     links = google_soup.find_all('a')
     pfr_id_google = ''
     for k in range(len(links)):

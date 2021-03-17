@@ -104,7 +104,7 @@ def get_id(name,position,team):
     out = name.lower().strip()+position.lower().strip()+team.lower().strip()
     return out
 
-def build_player_table():
+def build_player_table(force_pfr_dict={}):
     # This function builds a big table of player data out of Lee Sharpe's pff_pfr_map and FP's rankings;
     # it uses FP's rankings to identify the players of interest (skipping defense and kicker),
     # and then Sharpe's table to connect with PFF and PFR IDs
@@ -161,95 +161,98 @@ def build_player_table():
             draft_sub_df = fuzzy_get_df(draft_df,'pfr_name',fp_name,threshold=0.8,verbose=False,return_empty=True)
 
             try:
-                pfr_id = relish.load(pfr_id_relish)
+                pfr_id = force_pfr_dict[fp_name]
             except:
-                verbose = True
-                if verbose:
-                    print('Determining pfr_id for player %s.'%fp_name)
-                    
-                pfr_id_candidates = []
-                pfr_id_candidates.append(get_pfr_id_from_google(fp_name))
-
-                if len(player_name_sub_df)>=1:
-                    pfr_id_candidates+=player_name_sub_df['pfr_id'].values.tolist()
-
-                if len(draft_sub_df)>=1:
-                    pfr_id_candidates+=draft_sub_df['pfr_id'].values.tolist()
-
-                if verbose:
-                    print('candidates from google, player_name_sub_df, draft_sub_df:')
-                    print('\t',pfr_id_candidates)
-
-                pfr_id_candidates = [p for p in pfr_id_candidates if type(p)==str]
-                pfr_id_candidates = [p for p in pfr_id_candidates if len(p)>4]
-                
-                if len(pfr_id_candidates)>0:
+                try:
+                    pfr_id = relish.load(pfr_id_relish)
+                except:
+                    verbose = True
                     if verbose:
-                        print('candidates after cleanup')
-                        print(pfr_id_candidates)
+                        print('Determining pfr_id for player %s.'%fp_name)
 
-                    winners = poll_list(pfr_id_candidates)
-                    if verbose:
-                        print('candidates after polling')
-                        print(winners)
+                    pfr_id_candidates = []
+                    pfr_id_candidates.append(get_pfr_id_from_google(fp_name))
 
-                    for w in winners:
-                        if check_position_mascot(w,position,mascot):
-                            pfr_id = w
-                            break
+                    if len(player_name_sub_df)>=1:
+                        pfr_id_candidates+=player_name_sub_df['pfr_id'].values.tolist()
+
+                    if len(draft_sub_df)>=1:
+                        pfr_id_candidates+=draft_sub_df['pfr_id'].values.tolist()
 
                     if verbose:
-                        print('winning candidate for %s is %s'%(fp_name,pfr_id))
+                        print('candidates from google, player_name_sub_df, draft_sub_df:')
+                        print('\t',pfr_id_candidates)
+
+                    pfr_id_candidates = [p for p in pfr_id_candidates if type(p)==str]
+                    pfr_id_candidates = [p for p in pfr_id_candidates if len(p)>4]
+
+                    if len(pfr_id_candidates)>0:
+                        if verbose:
+                            print('candidates after cleanup')
+                            print(pfr_id_candidates)
+
+                        winners = poll_list(pfr_id_candidates)
+                        if verbose:
+                            print('candidates after polling')
+                            print(winners)
+
+                        for w in winners:
+                            if check_position_mascot(w,position,mascot):
+                                pfr_id = w
+                                break
+
+                        if verbose:
+                            print('winning candidate for %s is %s'%(fp_name,pfr_id))
+
+                        if pfr_id=='':
+                            if verbose:
+                                print('winning candidate was empty string')
+
+                            def pair_to_pfr(pair):
+                                return pair[1][:4]+pair[0][:2]
+
+                            def fix(s):
+                                out = []
+                                for a in s:
+                                    test = a.replace("'",'').replace(',','').replace('-','')
+                                    if a==test:
+                                        out.append(a)
+                                    else:
+                                        out = out + [a,test]
+                                return out
+
+                            name_parts = fp_name.split()
+                            name_parts = fix(name_parts)
+                            np = len(name_parts)
+                            for k1 in range(np):
+                                for k2 in range(k1+1,np):
+                                    try:
+                                        test = pair_to_pfr([name_parts[k1],name_parts[k2]])
+                                        for n in range(10):
+                                            testn = test + '%02d'%n
+                                            if verbose:
+                                                print('Brute force checking %s.'%testn)
+                                            if check_position_mascot(testn,position,mascot,verbose=True):
+                                                print('%s checks out. Using it unless dictionary specifies otherwise.'%testn)
+                                                pfr_id = testn
+                                                break
+                                    except Exception as e:
+                                        print(e)
+                    else:
+                        pfr_id = ''
+
+                    # last, last ditch:
+                    try:
+                        pfr_id = pfr_id_dict[fp_name]
+                        if verbose:
+                            print('%s specified in dictionary. Using it.'%pfr_id)
+                    except:
+                        pass
 
                     if pfr_id=='':
-                        if verbose:
-                            print('winning candidate was empty string')
+                        print(fp_name,'no pfr_id')
 
-                        def pair_to_pfr(pair):
-                            return pair[1][:4]+pair[0][:2]
-
-                        def fix(s):
-                            out = []
-                            for a in s:
-                                test = a.replace("'",'').replace(',','').replace('-','')
-                                if a==test:
-                                    out.append(a)
-                                else:
-                                    out = out + [a,test]
-                            return out
-
-                        name_parts = fp_name.split()
-                        name_parts = fix(name_parts)
-                        np = len(name_parts)
-                        for k1 in range(np):
-                            for k2 in range(k1+1,np):
-                                try:
-                                    test = pair_to_pfr([name_parts[k1],name_parts[k2]])
-                                    for n in range(10):
-                                        testn = test + '%02d'%n
-                                        if verbose:
-                                            print('Brute force checking %s.'%testn)
-                                        if check_position_mascot(testn,position,mascot,verbose=True):
-                                            print('%s checks out. Using it unless dictionary specifies otherwise.'%testn)
-                                            pfr_id = testn
-                                            break
-                                except Exception as e:
-                                    print(e)
-                else:
-                    pfr_id = ''
-                    
-                # last, last ditch:
-                try:
-                    pfr_id = pfr_id_dict[fp_name]
-                    if verbose:
-                        print('%s specified in dictionary. Using it.'%pfr_id)
-                except:
-                    pass
-                
-                if pfr_id=='':
-                    print(fp_name,'no pfr_id')
-                    
-                relish.save(pfr_id_relish,pfr_id)
+                    relish.save(pfr_id_relish,pfr_id)
 
             col_pfr_id.append(pfr_id)
 

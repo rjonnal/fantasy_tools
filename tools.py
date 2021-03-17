@@ -1,6 +1,7 @@
 import numpy as np
 import logging
 import relish
+import itertools
 
 try:
     keeper_dictionary = relish.load('keeper_dictionary')
@@ -51,18 +52,17 @@ class Player:
             self.posrank = ''
             
         else:
+            # Unnamed: 0  RK  TIERS PLAYER NAME TEAM   POS  BEST  WORST  AVG.  STD.DEV    pfr_id  draft_year  draft_round  draft_pick      unique_id
+            # 35          35  36      5  Mike Evans   TB  WR15    25     49  36.6      4.9  EvanMi00        2014            1           7  mikeevanswrtb
             self.rank = data_row['RK'].values[0]
             try:
                 self.tier = data_row['TIERS'].values[0]
             except:
                 self.tier = 0
-            self.draft_year = data_row['season'].values[0]
-            self.draft_round = data_row['round'].values[0]
-            self.draft_pick = data_row['pick'].values[0]
-            self.pff_id = data_row['pff_id'].values[0]
+            self.draft_year = data_row['draft_year'].values[0]
+            self.draft_round = data_row['draft_round'].values[0]
+            self.draft_pick = data_row['draft_pick'].values[0]
             self.pfr_id = data_row['pfr_id'].values[0]
-            self.pff_name = data_row['pff_name'].values[0]
-            self.pff_url_name = data_row['pff_url_name'].values[0]
             self.posrank = data_row['POS'].values[0]
 
 
@@ -141,6 +141,7 @@ class Team:
         for p in player_list:
             if p.position==position:
                 out.append(p)
+        out.sort()
         return out
 
     
@@ -242,5 +243,5 @@ class Team:
 
             relish.save('keeper_dictionary',keeper_dictionary)
             
-            
+        out = self.sort_by_position(out)
         return out

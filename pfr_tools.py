@@ -52,7 +52,7 @@ def check_position_mascot(pfr_id,position,mascot,verbose=False,strict=False):
 
     
 def gamelog_to_fpts(df,position,name):
-    print(position)
+    #print(position)
     requirements = {'QB':['Passing_Cmp','Passing_Yds','Passing_TD','Passing_Int'],
                     'RB':['Rushing_Yds','Rushing_TD'],
                     'WR':['Receiving_Rec','Receiving_Yds','Receiving_TD'],
@@ -69,14 +69,13 @@ def gamelog_to_fpts(df,position,name):
             print(req)
             sys.exit()
             
-    
     scoring_rules = [('Passing_Cmp',0.1), ('Passing_Yds',0.04), ('Passing_TD',4.0), ('Passing_Int',(-2)), ('Rushing_Yds',0.1), ('Rushing_TD',6.0), ('Receiving_Rec',0.5), ('Receiving_Yds',0.1), ('Receiving_TD',6.0), ('Fumbles_Fmb',(-2))]
     pts = 0.0
     for rule in scoring_rules:
         try:
             pts = pts + df[rule[0]]*rule[1]
         except Exception as e:
-            print(e)
+            pass
             
     return pts
 
@@ -95,8 +94,6 @@ def get_player_gamelog(player,year):
     except:
 
         url = pfr_id_to_gamelog_url(pfr_id,year)
-        
-        
         dfs = pd.read_html(url)
 
         # if there are multiple tables, the first one is regular season and the second is playoffs--ignore the latter
