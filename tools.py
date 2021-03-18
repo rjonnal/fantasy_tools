@@ -2,12 +2,27 @@ import numpy as np
 import logging
 import relish
 import itertools
+import pandas as pd
+import sys
 
 try:
     keeper_dictionary = relish.load('keeper_dictionary')
 except:
     keeper_dictionary = {}
     relish.save('keeper_dictionary',keeper_dictionary)
+
+def posrank_split(posrank):
+    temp = posrank[::-1]
+    rev_rank_string = ''
+    rev_pos_string = ''
+    
+    for idx in range(len(temp)):
+        try:
+            int(temp[idx])
+            rev_rank_string = rev_rank_string + temp[idx]
+        except:
+            rev_pos_string = rev_pos_string + temp[idx]
+    return rev_pos_string[::-1],int(rev_rank_string[::-1])
 
 class League:
     
@@ -32,6 +47,29 @@ class League:
     def __getitem__(self, sliced):
         return self.teams[sliced]
 
+
+def row_to_player(row):
+    name = row['PLAYER NAME']
+    position,positional_rank = posrank_split(row['POS'])
+    team = row['TEAM']
+    p = Player(name,position,team)
+    p.rank = row['RK']
+    p.tier = row['TIERS']
+    p.draft_year = row['draft_year']
+    p.draft_round = row['draft_round']
+    p.draft_pick = row['draft_pick']
+    p.pfr_id = row['pfr_id']
+    p.posrank = row['POS']
+    p.positional_rank = posrank_split(p.posrank)[1]
+    return p
+    
+def players_df_to_players(player_df):
+    players = []
+    for idx,row in player_df.iterrows():
+        player = row_to_player(row)
+        players.append(player)
+    return players
+        
         
 class Player:
     
@@ -45,10 +83,7 @@ class Player:
             self.draft_year = 0
             self.draft_round = 0
             self.draft_pick = 0
-            self.pff_id = ''
             self.pfr_id = ''
-            self.pff_name = ''
-            self.pff_url_name = ''
             self.posrank = ''
             
         else:
@@ -64,7 +99,7 @@ class Player:
             self.draft_pick = data_row['draft_pick'].values[0]
             self.pfr_id = data_row['pfr_id'].values[0]
             self.posrank = data_row['POS'].values[0]
-
+            self.positional_rank = posrank_split(self.posrank)[1]
 
         # do some checks:
         try:

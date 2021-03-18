@@ -67,7 +67,7 @@ def gamelog_to_fpts(df,position,name):
             print(position)
             print(cols)
             print(req)
-            sys.exit()
+            return 0.0
             
     scoring_rules = [('Passing_Cmp',0.1), ('Passing_Yds',0.04), ('Passing_TD',4.0), ('Passing_Int',(-2)), ('Rushing_Yds',0.1), ('Rushing_TD',6.0), ('Receiving_Rec',0.5), ('Receiving_Yds',0.1), ('Receiving_TD',6.0), ('Fumbles_Fmb',(-2))]
     pts = 0.0
@@ -82,51 +82,71 @@ def gamelog_to_fpts(df,position,name):
 
     
 def get_player_gamelog(player,year):
-    pfr_id = player.pfr_id
-    if not type(pfr_id)==str:
-        pfr_id = pfr_missing_dict[player.get_unique_id()]
-
-    csv_cache = './.gamelogs'
-    os.makedirs(csv_cache,exist_ok=True)
-    cache_fn = os.path.join(csv_cache,'pfr_gamelog_%s_%d.csv'%(pfr_id,year))
     try:
-        df = pd.read_csv(cache_fn)
-    except:
-
-        url = pfr_id_to_gamelog_url(pfr_id,year)
-        dfs = pd.read_html(url)
-
-        # if there are multiple tables, the first one is regular season and the second is playoffs--ignore the latter
-        df = dfs[0]
-
-        new_columns = []
+        pfr_id = player.pfr_id
         
-        for col in df.columns:
-            if col[0].find('Unnamed')>-1:
-                new_columns.append(col[1])
-            else:
-                new_columns.append('%s_%s'%(col[0],col[1]))
+        try:
+            print(player.get_unique_id())
+        except:
+            print('no-unique-id')
+            
+        try:
+            pfr_id = pfr_missing_dict[player.get_unique_id()]
+        except:
+            pass
 
-        df.columns = new_columns
+        if pfr_id=='NoId':
+            return pd.DataFrame([])
+        
+        csv_cache = './.gamelogs'
+        os.makedirs(csv_cache,exist_ok=True)
+        cache_fn = os.path.join(csv_cache,'pfr_gamelog_%s_%d.csv'%(pfr_id,year))
+        try:
+            df = pd.read_csv(cache_fn)
+        except:
 
-        df = df[:-1]
-        zero_strings = ['Inactive','Injured Reserve','Did Not Play','COVID-19 List']
-        for zs in zero_strings:
-            df = df.replace(zs,np.nan)
-        
-        
-        for col in ['Rk', 'G#', 'Week', 'Age', 'Passing_Cmp', 'Passing_Att',
-                    'Passing_Yds', 'Passing_TD', 'Passing_Int', 'Passing_Rate',
-                    'Passing_Sk', 'Passing_Yds.1', 'Passing_Y/A', 'Passing_AY/A',
-                    'Rushing_Att', 'Rushing_Yds', 'Rushing_Y/A', 'Rushing_TD', 'Scoring_TD',
-                    'Scoring_Pts', 'Fumbles_Fmb', 'Fumbles_FL', 'Fumbles_FF', 'Fumbles_FR',
-                    'Fumbles_Yds', 'Fumbles_TD', 'Off. Snaps_Num']:
             try:
-                df[col] = df[col].astype(np.float64)
-            except KeyError:
-                pass
-        
-    fpts = gamelog_to_fpts(df,player.position,player.name)
-    df['fpts'] = fpts
-    df.to_csv(cache_fn)
+                url = pfr_id_to_gamelog_url(pfr_id,year)
+                print(url)
+                dfs = pd.read_html(url)
+            except:
+                return pd.DataFrame([])
+
+            
+
+            # if there are multiple tables, the first one is regular season and the second is playoffs--ignore the latter
+            df = dfs[0]
+
+            new_columns = []
+
+            for col in df.columns:
+                if col[0].find('Unnamed')>-1:
+                    new_columns.append(col[1])
+                else:
+                    new_columns.append('%s_%s'%(col[0],col[1]))
+
+            df.columns = new_columns
+
+            df = df[:-1]
+            zero_strings = ['Inactive','Injured Reserve','Did Not Play','COVID-19 List','Suspended','Exempt List']
+            for zs in zero_strings:
+                df = df.replace(zs,np.nan)
+
+
+            for col in ['Rk', 'G#', 'Week', 'Age', 'Passing_Cmp', 'Passing_Att',
+                        'Passing_Yds', 'Passing_TD', 'Passing_Int', 'Passing_Rate',
+                        'Passing_Sk', 'Passing_Yds.1', 'Passing_Y/A', 'Passing_AY/A',
+                        'Rushing_Att', 'Rushing_Yds', 'Rushing_Y/A', 'Rushing_TD', 'Scoring_TD',
+                        'Scoring_Pts', 'Fumbles_Fmb', 'Fumbles_FL', 'Fumbles_FF', 'Fumbles_FR',
+                        'Fumbles_Yds', 'Fumbles_TD', 'Off. Snaps_Num']:
+                try:
+                    df[col] = df[col].astype(np.float64)
+                except KeyError:
+                    pass
+
+        fpts = gamelog_to_fpts(df,player.position,player.name)
+        df['fpts'] = fpts
+        df.to_csv(cache_fn)
+    except KeyError:
+        df = pd.DataFrame([])
     return df

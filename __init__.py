@@ -6,7 +6,7 @@ import sys,os,glob,time
 import pandas as pd
 import importlib.resources as pkg_resources
 from . import data as league_data
-from .tools import League,Player,Team
+from .tools import League,Player,Team,posrank_split
 from nfldata import data as sharpe_data
 from .matcher import fuzzy_get_df
 from .pfr_tools import check_position_mascot
@@ -47,19 +47,6 @@ def get_rankings_df(max_age_days=30):
 
 
 position_color_dict = {'QB':'b','RB':'g','WR':'r','TE':'y','D/ST':'k','K':'k'}
-
-def posrank_split(posrank):
-    temp = posrank[::-1]
-    rev_rank_string = ''
-    rev_pos_string = ''
-    
-    for idx in range(len(temp)):
-        try:
-            int(temp[idx])
-            rev_rank_string = rev_rank_string + temp[idx]
-        except:
-            rev_pos_string = rev_pos_string + temp[idx]
-    return rev_pos_string[::-1],int(rev_rank_string[::-1])
 
 class MultipleWinnerException(Exception):
     pass
