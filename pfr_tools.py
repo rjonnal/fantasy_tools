@@ -18,7 +18,7 @@ with pkg_resources.open_text(league_data, 'pfr_missing.csv') as fid:
 pfr_missing_dict = {}
 for idx,row in pfr_missing_df.iterrows():
     pfr_missing_dict[row['unique_id']] = row['pfr_id']
-
+    
 def pfr_id_to_url(pfr_id):
     letter = pfr_id[0].upper()
     url = 'https://www.pro-football-reference.com/players/%s/%s.htm'%(letter,pfr_id)
