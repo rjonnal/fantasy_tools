@@ -8,17 +8,42 @@ import logging
 
 default_figsize = (6,4)
 
-def make_attribute_plot(player_set,func1,func2,marker='ks',title=None):
+def make_attribute_plot(player_set,func1,func2,marker='ko',title=None,ylim=None,xlim=None):
 
     fig = plt.figure(figsize=default_figsize)
-    
+
+    xvec = []
+    yvec = []
     for p in player_set:
+        x = func1(p)
+        y = func2(p)
+        if np.isnan(x) or np.isnan(y):
+            continue
+        xvec.append(x)
+        yvec.append(y)
+        
         if type(marker)==str:
-            plt.plot(func1(p),func2(p),marker)
+            plt.plot(x,y,marker)
         else:
-            plt.plot(func1(p),func2(p),marker(p))
+            plt.plot(x,y,marker(p))
+
+    padfrac = 0.05
+    if xlim is None:
+        xr = np.ptp(xvec)
+        pad = xr*padfrac
+        xlim = (np.min(xvec)-pad,np.max(xvec)+pad)
+        
+    if ylim is None:
+        yr = np.ptp(yvec)
+        pad = yr*padfrac
+        ylim = (np.min(yvec)-pad,np.max(yvec)+pad)
+
+    plt.xlim(xlim)
+    plt.ylim(ylim)
     plt.xlabel(func1.__doc__)
     plt.ylabel(func2.__doc__)
+    plt.box(False)
+    
     if not title is None:
         plt.title(title)
     tag1 = func1.__doc__.lower().replace(' ','_')
@@ -28,9 +53,6 @@ def make_attribute_plot(player_set,func1,func2,marker='ks',title=None):
     out_fn = os.path.join('plots','%s.png'%tag)
     plt.savefig(out_fn)
 
-
-    
-        
 
 def make_league_plot(league_id,year,func,description='generic',mode='keepers',ylim=(None,None),ytickfmt='%0.1f'):
 

@@ -86,11 +86,6 @@ def get_player_gamelog(player,year):
         pfr_id = player.pfr_id
         
         try:
-            print(player.get_unique_id())
-        except:
-            print('no-unique-id')
-            
-        try:
             pfr_id = pfr_missing_dict[player.get_unique_id()]
         except:
             pass
