@@ -6,7 +6,7 @@ import sys,os,glob,time
 import pandas as pd
 import importlib.resources as pkg_resources
 from . import data as league_data
-from .tools import League,Player,Team,posrank_split
+from .tools import League,Player,Team,posrank_split,players_df_to_players
 from nfldata import data as sharpe_data
 from .matcher import fuzzy_get_df
 from .pfr_tools import check_position_mascot
@@ -36,14 +36,6 @@ with pkg_resources.open_text(sharpe_data, 'draft_picks.csv') as fid:
 # 2. Make sure 'Overall' is selected
 # 3. Click the download button and save
 # 4. Copy the file to the local data directory, e.g. BLL2021/data/fp_rankings.csv
-# Check and warn if the file is old
-def get_rankings_df(max_age_days=30):
-    rankings_file_stat = os.stat('./data/fp_rankings.csv')
-    rankings_age_days = (time.time()-rankings_file_stat.st_mtime)/(24.0*3600.0)
-    if rankings_age_days>max_age_days:
-        sys.exit('Rankings old! Get some new ones at https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php and put them in the local data folder.')
-    rankings_df = pd.read_csv('./data/fp_rankings.csv')
-    return rankings_df
 
 
 position_color_dict = {'QB':'b','RB':'g','WR':'r','TE':'y','D/ST':'k','K':'k'}
@@ -91,16 +83,22 @@ def get_id(name,position,team):
     out = name.lower().strip()+position.lower().strip()+team.lower().strip()
     return out
 
-def build_player_table(force_pfr_dict={}):
+def build_player_table_initial(rankings_file):
+    rankings_file_stat = os.stat(rankings_file)
+    rankings_age_days = (time.time()-rankings_file_stat.st_mtime)/(24.0*3600.0)
+    logging.info('Rankings page is %0.1f days old.'%rankings_age_days)
+    max_age_days = 30
+    if rankings_age_days>max_age_days:
+        sys.exit('Rankings old! Get some new ones at https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php and put them in the local data folder.')
+    rankings_df = pd.read_csv(rankings_file)
+
     # This function builds a big table of player data out of Lee Sharpe's pff_pfr_map and FP's rankings;
     # it uses FP's rankings to identify the players of interest (skipping defense and kicker),
     # and then Sharpe's table to connect with PFF and PFR IDs
 
     try:
-        player_df = pd.read_csv('./data/player_table.csv')
+        player_df = pd.read_csv('./data/player_table_initial.csv')
     except Exception:
-        rankings_df = get_rankings_df()
-        
         player_table = []
         # Here we want to add the following columns to this row:
         # pfr_id, which is player_name_df['pfr_id'] and draft_df['playerid'], and
@@ -148,101 +146,97 @@ def build_player_table(force_pfr_dict={}):
             draft_sub_df = fuzzy_get_df(draft_df,'pfr_name',fp_name,threshold=0.8,verbose=False,return_empty=True)
 
             try:
-                pfr_id = force_pfr_dict[fp_name]
+                pfr_id = relish.load(pfr_id_relish)
             except:
-                try:
-                    pfr_id = relish.load(pfr_id_relish)
-                except:
-                    verbose = True
+                verbose = True
+                if verbose:
+                    print('Determining pfr_id for player %s.'%fp_name)
+
+                pfr_id_candidates = []
+                pfr_id_candidates.append(get_pfr_id_from_google(fp_name))
+
+                if len(player_name_sub_df)>=1:
+                    pfr_id_candidates+=player_name_sub_df['pfr_id'].values.tolist()
+
+                if len(draft_sub_df)>=1:
+                    pfr_id_candidates+=draft_sub_df['pfr_id'].values.tolist()
+
+                if verbose:
+                    print('candidates from google, player_name_sub_df, draft_sub_df:')
+                    print('\t',pfr_id_candidates)
+
+                pfr_id_candidates = [p for p in pfr_id_candidates if type(p)==str]
+                pfr_id_candidates = [p for p in pfr_id_candidates if len(p)>4]
+
+                if len(pfr_id_candidates)>0:
                     if verbose:
-                        print('Determining pfr_id for player %s.'%fp_name)
+                        print('candidates after cleanup')
+                        print(pfr_id_candidates)
 
-                    pfr_id_candidates = []
-                    pfr_id_candidates.append(get_pfr_id_from_google(fp_name))
+                    winners = poll_list(pfr_id_candidates)
+                    if verbose:
+                        print('candidates after polling')
+                        print(winners)
 
-                    if len(player_name_sub_df)>=1:
-                        pfr_id_candidates+=player_name_sub_df['pfr_id'].values.tolist()
-
-                    if len(draft_sub_df)>=1:
-                        pfr_id_candidates+=draft_sub_df['pfr_id'].values.tolist()
+                    for w in winners:
+                        if check_position_mascot(w,position,mascot):
+                            pfr_id = w
+                            break
 
                     if verbose:
-                        print('candidates from google, player_name_sub_df, draft_sub_df:')
-                        print('\t',pfr_id_candidates)
-
-                    pfr_id_candidates = [p for p in pfr_id_candidates if type(p)==str]
-                    pfr_id_candidates = [p for p in pfr_id_candidates if len(p)>4]
-
-                    if len(pfr_id_candidates)>0:
-                        if verbose:
-                            print('candidates after cleanup')
-                            print(pfr_id_candidates)
-
-                        winners = poll_list(pfr_id_candidates)
-                        if verbose:
-                            print('candidates after polling')
-                            print(winners)
-
-                        for w in winners:
-                            if check_position_mascot(w,position,mascot):
-                                pfr_id = w
-                                break
-
-                        if verbose:
-                            print('winning candidate for %s is %s'%(fp_name,pfr_id))
-
-                        if pfr_id=='':
-                            if verbose:
-                                print('winning candidate was empty string')
-
-                            def pair_to_pfr(pair):
-                                return pair[1][:4]+pair[0][:2]
-
-                            def fix(s):
-                                out = []
-                                for a in s:
-                                    test = a.replace("'",'').replace(',','').replace('-','')
-                                    if a==test:
-                                        out.append(a)
-                                    else:
-                                        out = out + [a,test]
-                                return out
-
-                            name_parts = fp_name.split()
-                            name_parts = fix(name_parts)
-                            np = len(name_parts)
-                            for k1 in range(np):
-                                for k2 in range(k1+1,np):
-                                    try:
-                                        test = pair_to_pfr([name_parts[k1],name_parts[k2]])
-                                        for n in range(10):
-                                            testn = test + '%02d'%n
-                                            if verbose:
-                                                print('Brute force checking %s.'%testn)
-                                            if check_position_mascot(testn,position,mascot,verbose=True):
-                                                print('%s checks out. Using it unless dictionary specifies otherwise.'%testn)
-                                                pfr_id = testn
-                                                break
-                                    except Exception as e:
-                                        print(e)
-                    else:
-                        pfr_id = ''
-
-                    # last, last ditch:
-                    try:
-                        pfr_id = pfr_id_dict[fp_name]
-                        if verbose:
-                            print('%s specified in dictionary. Using it.'%pfr_id)
-                    except:
-                        pass
+                        print('winning candidate for %s is %s'%(fp_name,pfr_id))
 
                     if pfr_id=='':
-                        print(fp_name,'no pfr_id')
+                        if verbose:
+                            print('winning candidate was empty string')
 
-                    relish.save(pfr_id_relish,pfr_id)
+                        def pair_to_pfr(pair):
+                            return pair[1][:4]+pair[0][:2]
+
+                        def fix(s):
+                            out = []
+                            for a in s:
+                                test = a.replace("'",'').replace(',','').replace('-','')
+                                if a==test:
+                                    out.append(a)
+                                else:
+                                    out = out + [a,test]
+                            return out
+
+                        name_parts = fp_name.split()
+                        name_parts = fix(name_parts)
+                        np = len(name_parts)
+                        for k1 in range(np):
+                            for k2 in range(k1+1,np):
+                                try:
+                                    test = pair_to_pfr([name_parts[k1],name_parts[k2]])
+                                    for n in range(10):
+                                        testn = test + '%02d'%n
+                                        if verbose:
+                                            print('Brute force checking %s.'%testn)
+                                        if check_position_mascot(testn,position,mascot,verbose=True):
+                                            print('%s checks out. Using it unless dictionary specifies otherwise.'%testn)
+                                            pfr_id = testn
+                                            break
+                                except Exception as e:
+                                    print(e)
+                else:
+                    pfr_id = ''
+
+                # last, last ditch:
+                try:
+                    pfr_id = pfr_id_dict[fp_name]
+                    if verbose:
+                        print('%s specified in dictionary. Using it.'%pfr_id)
+                except:
+                    pass
+
+                if pfr_id=='':
+                    print(fp_name,'no pfr_id')
+
+                relish.save(pfr_id_relish,pfr_id)
 
             col_pfr_id.append(pfr_id)
-
 
             try:
                 y,r,p = entry_years_dictionary[unique_id]
@@ -266,8 +260,6 @@ def build_player_table(force_pfr_dict={}):
                         col_draft_round.append(draft_sub_df['round'].values[0])
                         col_draft_pick.append(draft_sub_df['pick'].values[0])
 
-
-            
         player_df = pd.DataFrame(player_df_list)
         player_df['pfr_id'] = col_pfr_id
         player_df['draft_year'] = col_draft_year
@@ -275,9 +267,58 @@ def build_player_table(force_pfr_dict={}):
         player_df['draft_pick'] = col_draft_pick
         player_df['unique_id'] = col_unique_id
         
-        player_df.to_csv('./data/player_table.csv')
+        player_df.to_csv('./data/player_table_initial.csv')
     return player_df
 
+
+def build_player_table(player_table_initial_filename,fp_pfr_lookup_filename,player_table_filename,rookie_year=0):
+    player_df = pd.read_csv(player_table_initial_filename)
+    lookup = pd.read_csv(fp_pfr_lookup_filename)
+    out = []
+    outcols = player_df.columns
+    for idx,row in player_df.iterrows():
+        name = row['PLAYER NAME']
+        temp = lookup[lookup['player_name']==name]
+        if len(temp)==1:
+            row['pfr_id'] = temp['pfr_id'].values[0]
+            test = temp['pfr_id'].values[0]
+            if not type(test)==str:
+                # assume rookie
+                row['pfr_id'] = ''
+                row['draft_year'] = rookie_year
+                row['draft_round'] = 0
+                row['draft_pick'] = 0
+        else:
+            logging.error('Fatal error--multiple matches in pfr lookup file.')
+            for eidx,erow in temp.iterrows():
+                logging.error(erow.tolist())
+        out.append(row)
+    outdf = pd.DataFrame(out,columns=outcols)
+    outdf.to_csv(player_table_filename)
+
+def fp_pfr_lookup_helper(player_table_initial_filename,html_output_filename,csv_output_filename):
+    players_df = pd.read_csv(player_table_initial_filename)
+    players = players_df_to_players(players_df)
+
+    with open(html_output_filename,'w') as fid:
+        fid.write("<html><head></head><body>")
+        for p in players:
+            try:
+                url = pfr_id_to_url(p.pfr_id)
+                urltext = url
+            except:
+                url = ''
+                urltext = 'no url'
+
+            fid.write("<p>%s / %s / %s:<a href='%s'>%s</a></p>"%(p.name,p.position,p.team,url,urltext))
+        fid.write("</body></html>")
+
+    with open(csv_output_filename,'w') as fid:
+        fid.write('player_name,pfr_id\n')
+        for p in players:
+            fid.write("%s,%s\n"%(p.name,p.pfr_id))
+
+    logging.info("Wrote helper files to %s and %s."%(html_output_filename,csv_output_filename))
 
 
 def build_league(league_id, year, use_cached=False):
