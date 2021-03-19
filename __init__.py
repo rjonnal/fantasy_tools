@@ -321,10 +321,9 @@ def fp_pfr_lookup_helper(player_table_initial_filename,html_output_filename,csv_
     logging.info("Wrote helper files to %s and %s."%(html_output_filename,csv_output_filename))
 
 
-def build_league(league_id, year, use_cached=False):
+def build_league(league_id, year, player_table_filename, use_cached=False):
 
-    players_df = build_player_table()
-    
+    players_df = pd.read_csv(player_table_filename)
     relish_id = 'league_%d_%d'%(league_id,year)
 
     if use_cached:

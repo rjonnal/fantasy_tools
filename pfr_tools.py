@@ -85,11 +85,6 @@ def get_player_gamelog(player,year):
     try:
         pfr_id = player.pfr_id
         
-        try:
-            pfr_id = pfr_missing_dict[player.get_unique_id()]
-        except:
-            pass
-
         if pfr_id=='NoId':
             return pd.DataFrame([])
         
@@ -145,3 +140,87 @@ def get_player_gamelog(player,year):
     except KeyError:
         df = pd.DataFrame([])
     return df
+
+
+class Attributes:
+    def __init__(self,name):
+        self.name = name
+        self.height = np.nan
+        self.weight = np.nan
+        self.salary = np.nan
+        self.hs = ''
+        self.college = ''
+        self.position = ''
+
+    def __str__(self):
+        return '%s (%s): %0.1f ft / %0.0f lb / $%d / %s / %s'%(self.name,self.position,self.height,self.weight,self.salary,self.college,self.hs)
+
+def get_player_attributes(player,verbose=False):
+    
+    pfr_id = player.pfr_id
+
+    relish_tag = '%s_attributes'%player.unique_id
+
+    try:
+        att = relish.load(relish_tag)
+    except:
+        
+        att = Attributes(player.name)
+        
+        if pfr_id=='NoId':
+            return att
+        
+        try:
+            url = pfr_id_to_url(pfr_id)
+        except:
+            # if the pfr_id is empty or nan
+            return att
+
+
+        soup = get_soup(url,verbose=verbose)
+        ps = soup.findAll('p')
+        scanning_for_hs = False
+        scanning_for_college = False
+        
+        for k in range(len(ps)):
+            text = ps[k].text
+            if text.find('Position')>-1:
+                try:
+                    position = text.strip()[len('Position: '):].replace('\n',' ').replace('  ',' ')
+                    att.position = position
+                except:
+                    pass
+            elif text.find('lb')>-1 and text.find(',')>-1:
+                try:
+                    temp = text[:text.find('lb')]
+                    assert len(temp)>5
+                    toks = temp.split()
+                    htoks = toks[0].replace(',','').split('-')
+                    height = float(htoks[0])+float(htoks[1])/12.0
+                    weight = float(toks[1])
+                    att.height = height
+                    att.weight = weight
+                except:
+                    pass
+            elif text.find('Current salary:')>-1:
+                try:
+                    att.salary = float(text[len('Current salary:'):].strip().replace(',',''))
+                except:
+                    pass
+            elif text.find('College:')>-1:
+                scanning_for_college = True
+            elif text.find('High school:')>-1:
+                scanning_for_hs = True
+
+            if scanning_for_college:
+                print(text)
+                if len(text)>3:
+                    att.college = text.strip()
+                    scanning_for_college = False
+
+            if scanning_for_hs:
+                if len(text)>3:
+                    att.hs = text.strip()
+                    scanning_for_hs = False
+        relish.save(relish_tag,att)
+    return att

@@ -54,14 +54,11 @@ def make_attribute_plot(player_set,func1,func2,marker='ko',title=None,ylim=None,
     plt.savefig(out_fn)
 
 
-def make_league_plot(league_id,year,func,description='generic',mode='keepers',ylim=(None,None),ytickfmt='%0.1f'):
+def make_league_plot(league,rookie_year,func,description='generic',mode='keepers',ylim=(None,None),ytickfmt='%0.1f'):
 
     # func must be a function that takes a player and returns a single, plottable value
     # mode can be 'keepers' or 'players'
     
-    player_table = build_player_table()
-    league = build_league(league_id,year)
-
     xticklabels = []
     n_teams = len(league.teams)
     xticks = range(n_teams)
@@ -90,7 +87,7 @@ def make_league_plot(league_id,year,func,description='generic',mode='keepers',yl
     for idx,team in enumerate(league.teams):
 
         if mode=='keepers':
-            players = team.get_keepers(rookie_year=year)
+            players = team.get_keepers(rookie_year=rookie_year)
         elif mode=='players':
             players = team.players
         else:
@@ -105,7 +102,7 @@ def make_league_plot(league_id,year,func,description='generic',mode='keepers',yl
                 continue
             posrank = k.posrank
             p,pr = posrank_split(posrank)
-            if k.draft_year==year:
+            if k.draft_year==rookie_year:
                 markeredgecolor = 'k'
             else:
                 markeredgecolor = 'none'
