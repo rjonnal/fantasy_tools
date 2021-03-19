@@ -93,12 +93,13 @@ def get_player_gamelog(player,year):
         cache_fn = os.path.join(csv_cache,'pfr_gamelog_%s_%d.csv'%(pfr_id,year))
         try:
             df = pd.read_csv(cache_fn)
+            logging.info('Getting %s log from %s.'%(player.name,cache_fn))
         except:
 
             try:
                 url = pfr_id_to_gamelog_url(pfr_id,year)
-                print(url)
                 dfs = pd.read_html(url)
+                logging.info('Getting %s log from %s.'%(player.name,url))
             except:
                 return pd.DataFrame([])
 
@@ -134,9 +135,10 @@ def get_player_gamelog(player,year):
                 except KeyError:
                     pass
 
-        fpts = gamelog_to_fpts(df,player.position,player.name)
-        df['fpts'] = fpts
-        df.to_csv(cache_fn)
+            fpts = gamelog_to_fpts(df,player.position,player.name)
+            df['fpts'] = fpts
+            df.to_csv(cache_fn)
+            
     except KeyError:
         df = pd.DataFrame([])
     return df
@@ -151,9 +153,14 @@ class Attributes:
         self.hs = ''
         self.college = ''
         self.position = ''
-
+        self.throws = ''
+        
     def __str__(self):
-        return '%s (%s): %0.1f ft / %0.0f lb / $%d / %s / %s'%(self.name,self.position,self.height,self.weight,self.salary,self.college,self.hs)
+        tup = (self.name,self.position,self.height,self.weight,self.salary,self.throws)
+        try:
+            return '%s (%s): %0.1f ft / %0.0f lb / $%d / %s '%tup
+        except Exception as e:
+            return '%s: no PFR attributes'%self.name
 
 def get_player_attributes(player,verbose=False):
     
@@ -186,8 +193,16 @@ def get_player_attributes(player,verbose=False):
             text = ps[k].text
             if text.find('Position')>-1:
                 try:
-                    position = text.strip()[len('Position: '):].replace('\n',' ').replace('  ',' ')
-                    att.position = position
+                    position = text.strip()[len('Position: '):].replace('\n',' ').replace('  ',' ').strip()
+                    if position.find('Throws')>-1:
+                        pos_root = position.split()[0]
+                        if position.find('Right')>-1:
+                            att.throws = 'right'
+                        elif position.find('Left')>-1:
+                            att.throws = 'left'
+                        att.position = pos_root
+                    else:
+                        att.position = position
                 except:
                     pass
             elif text.find('lb')>-1 and text.find(',')>-1:
@@ -207,20 +222,20 @@ def get_player_attributes(player,verbose=False):
                     att.salary = float(text[len('Current salary:'):].strip().replace(',',''))
                 except:
                     pass
-            elif text.find('College:')>-1:
-                scanning_for_college = True
-            elif text.find('High school:')>-1:
-                scanning_for_hs = True
+            # elif text.find('College:')>-1:
+            #     scanning_for_college = True
+            # elif text.find('High school:')>-1:
+            #     scanning_for_hs = True
 
-            if scanning_for_college:
-                print(text)
-                if len(text)>3:
-                    att.college = text.strip()
-                    scanning_for_college = False
+            # if scanning_for_college:
+            #     print(text)
+            #     if len(text)>3:
+            #         att.college = text.strip()
+            #         scanning_for_college = False
 
-            if scanning_for_hs:
-                if len(text)>3:
-                    att.hs = text.strip()
-                    scanning_for_hs = False
+            # if scanning_for_hs:
+            #     if len(text)>3:
+            #         att.hs = text.strip()
+            #         scanning_for_hs = False
         relish.save(relish_tag,att)
     return att
