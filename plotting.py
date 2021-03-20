@@ -7,25 +7,26 @@ import logging
 
 
 default_figsize = (6,4)
+markersize = 5
 
-def make_attribute_plot(player_set,func1,func2,marker='ko',title=None,ylim=None,xlim=None):
+def make_attribute_plot(player_set,func1,func2,marker='ko',title=None,ylim=None,xlim=None,verbose=False,plotfunc=plt.plot):
 
     fig = plt.figure(figsize=default_figsize)
 
     xvec = []
     yvec = []
     for p in player_set:
-        x = func1(p)
-        y = func2(p)
+        x = func1(p,verbose=verbose)
+        y = func2(p,verbose=verbose)
         if np.isnan(x) or np.isnan(y):
             continue
         xvec.append(x)
         yvec.append(y)
         
         if type(marker)==str:
-            plt.plot(x,y,marker)
+            plotfunc(x,y,marker,markersize=markersize)
         else:
-            plt.plot(x,y,marker(p))
+            plotfunc(x,y,marker(p))
 
     padfrac = 0.05
     if xlim is None:
@@ -49,12 +50,13 @@ def make_attribute_plot(player_set,func1,func2,marker='ko',title=None,ylim=None,
     tag1 = func1.__doc__.lower().replace(' ','_')
     tag2 = func2.__doc__.lower().replace(' ','_')
     tag = '%s_v_%s'%(tag1,tag2)
+    tag = tag.replace('(','').replace(')','')
     os.makedirs('plots',exist_ok=True)
     out_fn = os.path.join('plots','%s.png'%tag)
     plt.savefig(out_fn)
 
 
-def make_league_plot(league,rookie_year,func,description='generic',mode='keepers',ylim=(None,None),ytickfmt='%0.1f'):
+def make_league_plot(league,rookie_year,func,description='generic',mode='keepers',ylim=(None,None),ytickfmt='%0.1f',verbose=False,plotfunc=plt.plot):
 
     # func must be a function that takes a player and returns a single, plottable value
     # mode can be 'keepers' or 'players'
@@ -70,8 +72,6 @@ def make_league_plot(league,rookie_year,func,description='generic',mode='keepers
     markeredgewidth = 0.75
 
     marker = 'o'
-    markersize = 4
-
 
     plot_orientation = True # orient like a plot (origin @ lower left)
     try:
@@ -97,7 +97,7 @@ def make_league_plot(league,rookie_year,func,description='generic',mode='keepers
         logging.info(players)
 
         for k in players:
-            r = func(k)
+            r = func(k,verbose=verbose)
             if r is None:
                 continue
             posrank = k.posrank
@@ -121,13 +121,13 @@ def make_league_plot(league,rookie_year,func,description='generic',mode='keepers
             except TypeError:
                 pass
 
-            plt.plot(idx+shifts[p]*.1,r,'%s%s'%(position_color_dict[k.position],marker),markersize=markersize,markeredgecolor=markeredgecolor,markeredgewidth=markeredgewidth)
+            plotfunc(idx+shifts[p]*.15,r,'%s%s'%(position_color_dict[k.position],marker),markersize=markersize,markeredgecolor=markeredgecolor,markeredgewidth=markeredgewidth)
         xticklabels.append(team.team_abbr)
 
     for k in ['QB','RB','WR','TE']:
-        plt.plot(-10,-10,'%s%s'%(position_color_dict[k],marker),label=k,markersize=markersize)
-    plt.plot(-10,-10,'wo',markersize=markersize,label='rookie',markeredgecolor='k',markeredgewidth=markeredgewidth)
-    #plt.plot(-10,-10,'r%s'%marker,label='rookie',markersize=markersize,markerfacecolor='w',markeredgecolor=markeredgecolor,markeredgewidth=2)
+        plotfunc(-10,-10,'%s%s'%(position_color_dict[k],marker),label=k,markersize=markersize)
+    plotfunc(-10,-10,'wo',markersize=markersize,label='rookie',markeredgecolor='k',markeredgewidth=markeredgewidth)
+    #plotfunc(-10,-10,'r%s'%marker,label='rookie',markersize=markersize,markerfacecolor='w',markeredgecolor=markeredgecolor,markeredgewidth=2)
 
 
     plt.legend()
@@ -154,7 +154,17 @@ def make_league_plot(league,rookie_year,func,description='generic',mode='keepers
     yticks = plt.gca().get_yticks()
     dy = np.diff(yticks).mean()
 
-    yticks = np.arange(min(ylim),max(ylim)+1,dy)
+    if topped and bottomed:
+        yticks = list(np.arange(min(ylim),max(ylim),dy))+[max(ylim)]
+    elif topped:
+        yticks = list(np.arange(max(ylim),min(ylim),-dy))[::-1]
+    elif bottomed:
+        yticks = list(np.arange(min(ylim),max(ylim),dy))
+    else:
+        yticks = np.arange(min(ylim),max(ylim)+1,dy)
+
+        
+        
     yticklabels = [ytickfmt%t for t in yticks]
 
     if topped:
@@ -170,6 +180,6 @@ def make_league_plot(league,rookie_year,func,description='generic',mode='keepers
     plt.gca().spines["bottom"].set_visible(False)
     plt.gca().spines["left"].set_visible(False)
 
-    out_fn = os.path.join('plots',func.__doc__.lower().replace(' ','_')+'_%s'%mode+'.png')
+    out_fn = os.path.join('plots',func.__doc__.lower().replace(' ','_').replace('(','').replace(')','')+'_%s'%mode+'.png')
     os.makedirs('plots',exist_ok=True)
     plt.savefig(out_fn)

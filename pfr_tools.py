@@ -11,6 +11,11 @@ import importlib.resources as pkg_resources
 from . import data as league_data
 from .scraper import get_soup
 import re
+import logging
+
+logging.basicConfig(filename='fantasy_tools.log', level=logging.INFO)
+#logging.getLogger().addHandler(logging.StreamHandler())
+
 
 with pkg_resources.open_text(league_data, 'pfr_missing.csv') as fid:
     pfr_missing_df = pd.read_csv(fid)
@@ -81,7 +86,7 @@ def gamelog_to_fpts(df,position,name):
 
 
     
-def get_player_gamelog(player,year):
+def get_player_gamelog(player,year,verbose=False):
     try:
         pfr_id = player.pfr_id
         
@@ -93,17 +98,16 @@ def get_player_gamelog(player,year):
         cache_fn = os.path.join(csv_cache,'pfr_gamelog_%s_%d.csv'%(pfr_id,year))
         try:
             df = pd.read_csv(cache_fn)
-            logging.info('Getting %s log from %s.'%(player.name,cache_fn))
+            if verbose:
+                logging.info('Getting %s log from %s.'%(player.name,cache_fn))
         except:
-
             try:
                 url = pfr_id_to_gamelog_url(pfr_id,year)
                 dfs = pd.read_html(url)
-                logging.info('Getting %s log from %s.'%(player.name,url))
+                if verbose:
+                    logging.info('Getting %s log from %s.'%(player.name,url))
             except:
                 return pd.DataFrame([])
-
-            
 
             # if there are multiple tables, the first one is regular season and the second is playoffs--ignore the latter
             df = dfs[0]
