@@ -13,17 +13,32 @@ def similarity(a, b):
 def fuzzy_get_df(df,column,string,threshold=.85,verbose=False,return_empty=False):
     # return row of df where its column matches (or near matches) string
     match = df[df[column]==string]
+    if verbose:
+        print('Initial match: %s.'%match)
     if len(match)>=1: # a perfect match
+        if verbose:
+            print('Exactly one match, returning it.')
         return match
     elif len(match)==0:
+        if verbose:
+            print('No perfect matches, looking for close matches.')
         scores = []
         for candidate in df[column]:
             try:
-                scores.append(similarity(candidate,string))
+                if verbose>1:
+                    print(type(candidate),type(string))
+                score = similarity(candidate,string)
+                if verbose>1:
+                    print('Comparing %s and %s: %0.2f'%(candidate,string,score))
+                scores.append(score)
             except Exception as e:
                 if verbose:
                     print('Cannot compute similarity between %s and %s. Using 0.0.'%(candidate,string))
                 scores.append(0.0)
+
+        if verbose:
+            print('Winning item has score of %0.2f.'%(np.max(scores)))
+            
         if np.max(scores)>threshold:
             return df[df[column]==df[column][np.argmax(scores)]]
         else:
