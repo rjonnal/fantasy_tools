@@ -153,7 +153,10 @@ def build_player_table_initial(rankings_file):
                     print('Determining pfr_id for player %s.'%fp_name)
 
                 pfr_id_candidates = []
-                pfr_id_candidates.append(get_pfr_id_from_google(fp_name))
+                try:
+                    pfr_id_candidates.append(get_pfr_id_from_google(fp_name))
+                except:
+                    pass
 
                 if len(player_name_sub_df)>=1:
                     pfr_id_candidates+=player_name_sub_df['pfr_id'].values.tolist()
